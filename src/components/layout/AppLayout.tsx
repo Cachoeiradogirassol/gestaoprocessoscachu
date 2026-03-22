@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, ClipboardList, Calendar, MessageSquare,
-  Users, BarChart3, Bot, LogOut, Menu, X, ChevronRight
+  LayoutDashboard, ClipboardList, Calendar, CalendarDays, MessageSquare,
+  Users, BarChart3, LogOut, Menu, X, ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,10 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: ClipboardList, label: 'Tarefas', path: '/tasks' },
   { icon: Calendar, label: 'Eventos', path: '/events' },
+  { icon: CalendarDays, label: 'Calendário', path: '/calendar' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
   { icon: Users, label: 'Equipe', path: '/team', roles: ['admin', 'gestor'] },
   { icon: BarChart3, label: 'Relatórios', path: '/reports', roles: ['admin', 'gestor'] },
-  { icon: Bot, label: 'Assistente IA', path: '/ai' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
