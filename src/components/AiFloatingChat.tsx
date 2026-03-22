@@ -3,8 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, X, Send, User, Minimize2 } from 'lucide-react';
-import { Bot, X, Send, User } from 'lucide-react';
+import { Bot, X, Send } from 'lucide-react';
 
 interface AiMessage {
   role: 'user' | 'assistant';
