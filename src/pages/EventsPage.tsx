@@ -30,6 +30,7 @@ interface Profile {
 
 export default function EventsPage() {
   const { user, isAdmin, isGestor } = useAuth();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [events, setEvents] = useState<Event[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
