@@ -3,8 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, X, Send, User, Minimize2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { Bot, X, Send } from 'lucide-react';
 
 interface AiMessage {
   role: 'user' | 'assistant';
@@ -135,13 +134,7 @@ export default function AiFloatingChat() {
                     ? 'bg-primary text-primary-foreground rounded-br-sm'
                     : 'bg-muted text-foreground rounded-bl-sm'
                 }`}>
-                  {msg.role === 'assistant' ? (
-                    <div className="prose prose-sm max-w-none dark:prose-invert [&_p]:mb-1 [&_p]:mt-0">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p>{msg.content}</p>
-                  )}
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
             ))}
