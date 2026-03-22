@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ interface Profile {
 
 export default function EventsPage() {
   const { user, isAdmin, isGestor } = useAuth();
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [events, setEvents] = useState<Event[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -108,7 +110,7 @@ export default function EventsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {events.map(ev => (
-            <Card key={ev.id} className="border-border hover:shadow-md transition-shadow">
+            <Card key={ev.id} className="border-border hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/events/${ev.id}`)}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{ev.name}</CardTitle>
               </CardHeader>

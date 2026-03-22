@@ -441,7 +441,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "gestor" | "operacional"
-      recurrence_type: "diario" | "semanal" | "personalizado"
+      recurrence_type: "diario" | "semanal" | "personalizado" | "mensal"
       task_priority: "baixa" | "media" | "alta" | "urgente"
       task_status:
         | "backlog"
@@ -577,7 +577,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "gestor", "operacional"],
-      recurrence_type: ["diario", "semanal", "personalizado"],
+      recurrence_type: ["diario", "semanal", "personalizado", "mensal"],
       task_priority: ["baixa", "media", "alta", "urgente"],
       task_status: [
         "backlog",
