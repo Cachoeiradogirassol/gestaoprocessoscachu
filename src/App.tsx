@@ -13,6 +13,7 @@ import CalendarPage from "./pages/CalendarPage";
 import ChatPage from "./pages/ChatPage";
 import TeamPage from "./pages/TeamPage";
 import ReportsPage from "./pages/ReportsPage";
+import MeetingsPage from "./pages/MeetingsPage";
 import AppLayout from "./components/layout/AppLayout";
 import AiFloatingChat from "./components/AiFloatingChat";
 import NotFound from "./pages/NotFound";
@@ -65,6 +66,7 @@ function AppContent() {
         <Route path="/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+        <Route path="/meetings" element={<ProtectedRoute roles={['admin', 'gestor']}><MeetingsPage /></ProtectedRoute>} />
         <Route path="/team" element={<ProtectedRoute roles={['admin', 'gestor']}><TeamPage /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute roles={['admin', 'gestor']}><ReportsPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
