@@ -14,15 +14,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // Get auth user for context
-    const authHeader = req.headers.get("Authorization") || "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch contextual data for the AI
     const now = new Date().toISOString();
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
 
     const [{ data: tasks }, { data: events }, { data: profiles }] = await Promise.all([
       supabase.from("tasks").select("id, title, status, priority, due_date, responsible_id, setor, completed_at").limit(200),
@@ -35,52 +31,44 @@ serve(async (req) => {
     }, {});
 
     const tasksSummary = (tasks || []).map((t: any) => ({
-      id: t.id,
-      titulo: t.title,
-      status: t.status,
-      prioridade: t.priority,
-      prazo: t.due_date,
-      responsavel: profileMap[t.responsible_id] || "Sem responsável",
-      setor: t.setor,
-      concluido_em: t.completed_at,
+      titulo: t.title, status: t.status, prioridade: t.priority, prazo: t.due_date,
+      responsavel: profileMap[t.responsible_id] || "Sem responsável", setor: t.setor,
     }));
 
     const eventsSummary = (events || []).map((e: any) => ({
-      id: e.id,
-      nome: e.name,
-      data: e.event_date,
-      descricao: e.description,
+      id: e.id, nome: e.name, data: e.event_date,
     }));
 
-    const systemPrompt = `Você é o assistente IA do TaskFlow, um sistema de gestão de tarefas. Você tem acesso aos dados atuais do sistema.
+    const profileList = (profiles || []).map((p: any) => `${p.full_name} (setor: ${p.setor || 'N/A'})`).join(", ");
 
-DADOS ATUAIS (${now}):
+    const systemPrompt = `Você é o assistente IA do TaskFlow, um sistema de gestão de tarefas. Data atual: ${now}
 
-TAREFAS (${tasksSummary.length} total):
-${JSON.stringify(tasksSummary, null, 0)}
+DADOS DO SISTEMA:
+- ${tasksSummary.length} tarefas: ${JSON.stringify(tasksSummary)}
+- ${eventsSummary.length} eventos: ${JSON.stringify(eventsSummary)}
+- Usuários: ${profileList}
 
-EVENTOS (${eventsSummary.length} total):
-${JSON.stringify(eventsSummary, null, 0)}
+CAPACIDADES:
+1. Responder perguntas sobre tarefas, eventos, equipe, produtividade
+2. Criar tarefas quando solicitado
 
-USUÁRIOS:
-${JSON.stringify(profiles, null, 0)}
+PARA CRIAR TAREFAS, use este formato EXATO:
+\`\`\`taskflow-action
+{"action":"create_tasks","tasks":[{"title":"Nome da tarefa","responsible_name":"Nome do responsável","due_date":"YYYY-MM-DD","priority":"media","setor":"setor","event_name":"nome do evento ou null"}]}
+\`\`\`
 
-SUAS CAPACIDADES:
-1. Responder perguntas sobre tarefas, eventos e equipe
-2. Gerar resumos diários/semanais
-3. Identificar atrasos e problemas
-4. Quando o usuário pedir para CRIAR tarefas, retorne um JSON especial no formato:
-   \`\`\`taskflow-action
-   {"action":"create_tasks","tasks":[{"title":"...","responsible_name":"...","due_date":"YYYY-MM-DD","priority":"media","setor":"...","event_name":"..."}]}
-   \`\`\`
-   Após o bloco de ação, explique o que foi feito.
+EXEMPLOS:
+- "Criar 4 tarefas para o Betinho com vencimento hoje" → Crie 4 tarefas com responsible_name="Betinho" e due_date de hoje
+- "Criar tarefas de logística para Semana Santa" → Crie tarefas com setor="Logística" e event_name="Semana Santa"
+- "Criar tarefa de relatório para Maria" → Crie 1 tarefa com responsible_name="Maria"
 
 REGRAS:
-- Responda sempre em português do Brasil
-- Seja conciso e direto
-- Use markdown para formatação
-- Quando mostrar dados, use tabelas ou listas
-- Para criar tarefas, use o formato especial acima`;
+- Sempre em português do Brasil, conciso e direto
+- Quando criar tarefas, SEMPRE inclua o bloco taskflow-action
+- Após o bloco de ação, explique brevemente o que foi criado
+- Use nomes reais dos usuários do sistema
+- Prioridades: baixa, media, alta, urgente
+- Se não souber o responsável, use o nome mais próximo da lista`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -90,28 +78,26 @@ REGRAS:
       },
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
         stream: true,
       }),
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns segundos." }), {
+      const status = response.status;
+      if (status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos insuficientes." }), {
+      if (status === 402) {
+        return new Response(JSON.stringify({ error: "Credits exhausted" }), {
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "Erro no gateway de IA" }), {
+      console.error("AI gateway error:", status, t);
+      return new Response(JSON.stringify({ error: "AI gateway error" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -121,7 +107,7 @@ REGRAS:
     });
   } catch (e) {
     console.error("ai-chat error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Erro desconhecido" }), {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
