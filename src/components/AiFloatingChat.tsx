@@ -3,6 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import { Bot, X, Send } from 'lucide-react';
 
 interface AiMessage {
@@ -14,6 +15,7 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 
 export default function AiFloatingChat() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<AiMessage[]>([
     { role: 'assistant', content: 'Olá! Sou o assistente IA do TaskFlow. Posso criar tarefas, gerar resumos e responder perguntas. Como posso ajudar?' },
@@ -25,6 +27,53 @@ export default function AiFloatingChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const processAiActions = async (fullText: string) => {
+    const actionMatch = fullText.match(/```taskflow-action\n([\s\S]*?)\n```/);
+    if (!actionMatch) return;
+
+    try {
+      const action = JSON.parse(actionMatch[1]);
+      if (action.action === 'create_tasks' && action.tasks) {
+        const { data: profiles } = await supabase.from('profiles').select('user_id, full_name');
+        const { data: events } = await supabase.from('events').select('id, name');
+
+        let created = 0;
+        for (const task of action.tasks) {
+          const responsibleProfile = profiles?.find(p =>
+            p.full_name.toLowerCase().includes((task.responsible_name || '').toLowerCase())
+          );
+
+          const { data: taskData, error } = await supabase.from('tasks').insert({
+            title: task.title,
+            priority: task.priority || 'media',
+            status: 'a_fazer',
+            due_date: task.due_date || null,
+            responsible_id: responsibleProfile?.user_id || user?.id || null,
+            setor: task.setor || null,
+            created_by: user?.id,
+          }).select('id').single();
+
+          if (taskData && !error) {
+            created++;
+            // Link to event if specified
+            if (task.event_name) {
+              const event = events?.find(e => e.name.toLowerCase().includes(task.event_name.toLowerCase()));
+              if (event) {
+                await supabase.from('event_tasks').insert({ event_id: event.id, task_id: taskData.id });
+              }
+            }
+          }
+        }
+
+        if (created > 0) {
+          toast({ title: `${created} tarefa(s) criada(s) pela IA!` });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse AI action:', e);
+    }
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -58,8 +107,17 @@ export default function AiFloatingChat() {
       });
 
       if (!resp.ok || !resp.body) {
-        const errText = await resp.text();
-        throw new Error(errText || 'Erro ao conectar com IA');
+        if (resp.status === 429) {
+          upsertAssistant('⚠️ Limite de requisições excedido. Aguarde alguns segundos e tente novamente.');
+          setIsLoading(false);
+          return;
+        }
+        if (resp.status === 402) {
+          upsertAssistant('⚠️ Créditos insuficientes. Adicione fundos nas configurações.');
+          setIsLoading(false);
+          return;
+        }
+        throw new Error('Erro ao conectar com IA');
       }
 
       const reader = resp.body.getReader();
@@ -90,6 +148,9 @@ export default function AiFloatingChat() {
           }
         }
       }
+
+      // Process any AI actions in the response
+      await processAiActions(assistantSoFar);
     } catch (e: any) {
       upsertAssistant('Desculpe, ocorreu um erro. Tente novamente.');
     }
@@ -99,9 +160,13 @@ export default function AiFloatingChat() {
 
   if (!user) return null;
 
+  // Clean display text (remove action blocks)
+  const cleanContent = (text: string) => {
+    return text.replace(/```taskflow-action\n[\s\S]*?\n```/g, '').trim();
+  };
+
   return (
     <>
-      {/* Floating button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
@@ -111,10 +176,8 @@ export default function AiFloatingChat() {
         </button>
       )}
 
-      {/* Chat panel */}
       {isOpen && (
         <div className="fixed bottom-4 right-4 z-50 w-[360px] max-w-[calc(100vw-2rem)] h-[500px] max-h-[calc(100vh-6rem)] flex flex-col rounded-xl border border-border bg-card shadow-2xl">
-          {/* Header */}
           <div className="flex items-center gap-2 p-3 border-b border-border shrink-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary">
               <Bot className="h-4 w-4 text-primary-foreground" />
@@ -125,19 +188,22 @@ export default function AiFloatingChat() {
             </button>
           </div>
 
-          {/* Messages */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-primary-foreground rounded-br-sm'
-                    : 'bg-muted text-foreground rounded-bl-sm'
-                }`}>
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+            {messages.map((msg, i) => {
+              const displayText = msg.role === 'assistant' ? cleanContent(msg.content) : msg.content;
+              if (!displayText) return null;
+              return (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                    msg.role === 'user'
+                      ? 'bg-primary text-primary-foreground rounded-br-sm'
+                      : 'bg-muted text-foreground rounded-bl-sm'
+                  }`}>
+                    <p className="whitespace-pre-wrap">{displayText}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
               <div className="flex items-center gap-2">
                 <div className="bg-muted rounded-xl px-3 py-2">
@@ -152,7 +218,6 @@ export default function AiFloatingChat() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input */}
           <div className="p-3 border-t border-border shrink-0 flex gap-2">
             <Input
               value={input}
