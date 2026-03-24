@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply } from 'lucide-react';
+import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -138,20 +138,37 @@ export default function EventDetailPage() {
     const uploadFiles = e.target.files;
     if (!uploadFiles || !id || !user) return;
     setIsUploading(true);
+    let successCount = 0;
+    let failCount = 0;
     for (const file of Array.from(uploadFiles)) {
-      const filePath = `${id}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage.from('event-files').upload(filePath, file);
-      if (!uploadError) {
+      try {
+        const filePath = `${id}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage.from('event-files').upload(filePath, file);
+        if (uploadError) {
+          console.error('Storage upload error:', uploadError);
+          failCount++;
+          continue;
+        }
         const { data: urlData } = supabase.storage.from('event-files').getPublicUrl(filePath);
-        await supabase.from('event_files').insert({
+        const { error: insertError } = await supabase.from('event_files').insert({
           event_id: id, file_name: file.name, file_url: urlData.publicUrl,
           file_type: file.type, file_size: file.size, uploaded_by: user.id,
         });
+        if (insertError) {
+          console.error('DB insert error:', insertError);
+          failCount++;
+        } else {
+          successCount++;
+        }
+      } catch (err) {
+        console.error('File upload error:', err);
+        failCount++;
       }
     }
     setIsUploading(false);
-    fetchFiles();
-    toast({ title: 'Arquivos enviados!' });
+    await fetchFiles();
+    if (successCount > 0) toast({ title: `${successCount} arquivo(s) enviado(s)!` });
+    if (failCount > 0) toast({ title: `${failCount} arquivo(s) falharam`, variant: 'destructive' });
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -345,7 +362,7 @@ export default function EventDetailPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">Arquivos do Evento</h3>
             <div>
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
               <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                 <Upload className="h-4 w-4 mr-1" />{isUploading ? 'Enviando...' : 'Upload'}
               </Button>
@@ -362,6 +379,9 @@ export default function EventDetailPage() {
                     <a href={f.file_url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline truncate block">{f.file_name}</a>
                     <p className="text-xs text-muted-foreground">{formatFileSize(f.file_size)} • {getProfileName(f.uploaded_by)} • {format(new Date(f.created_at), 'dd/MM HH:mm')}</p>
                   </div>
+                  <a href={f.file_url} download={f.file_name} target="_blank" rel="noopener noreferrer">
+                    <Button variant="ghost" size="icon" className="h-8 w-8"><Download className="h-4 w-4 text-muted-foreground" /></Button>
+                  </a>
                   {(isAdmin || isGestor || f.uploaded_by === user?.id) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteFile(f.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   )}
