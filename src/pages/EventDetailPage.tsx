@@ -379,6 +379,9 @@ export default function EventDetailPage() {
                     <a href={f.file_url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline truncate block">{f.file_name}</a>
                     <p className="text-xs text-muted-foreground">{formatFileSize(f.file_size)} • {getProfileName(f.uploaded_by)} • {format(new Date(f.created_at), 'dd/MM HH:mm')}</p>
                   </div>
+                  <a href={f.file_url} download={f.file_name} target="_blank" rel="noopener noreferrer">
+                    <Button variant="ghost" size="icon" className="h-8 w-8"><Download className="h-4 w-4 text-muted-foreground" /></Button>
+                  </a>
                   {(isAdmin || isGestor || f.uploaded_by === user?.id) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteFile(f.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                   )}
