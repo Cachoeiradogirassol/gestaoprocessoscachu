@@ -6,6 +6,7 @@ import {
   Users, BarChart3, LogOut, Menu, X, ChevronRight, Mic
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import NotificationBell from '@/components/NotificationBell';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
@@ -89,9 +90,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-foreground">
             <Menu className="h-5 w-5" />
           </button>
-          <h2 className="text-lg font-semibold text-foreground">
+          <h2 className="text-lg font-semibold text-foreground flex-1">
             {filteredNav.find(n => location.pathname.startsWith(n.path))?.label || 'TaskFlow'}
           </h2>
+          <NotificationBell />
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">

@@ -285,6 +285,7 @@ export type Database = {
           receiver_id: string | null
           reply_to_id: string | null
           sender_id: string
+          task_id: string | null
         }
         Insert: {
           content: string
@@ -295,6 +296,7 @@ export type Database = {
           receiver_id?: string | null
           reply_to_id?: string | null
           sender_id: string
+          task_id?: string | null
         }
         Update: {
           content?: string
@@ -305,6 +307,7 @@ export type Database = {
           receiver_id?: string | null
           reply_to_id?: string | null
           sender_id?: string
+          task_id?: string | null
         }
         Relationships: [
           {
@@ -321,7 +324,47 @@ export type Database = {
             referencedRelation: "messages"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "messages_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          link: string | null
+          message: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          message?: string | null
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          message?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
