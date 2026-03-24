@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply } from 'lucide-react';
+import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
