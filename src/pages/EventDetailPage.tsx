@@ -362,7 +362,7 @@ export default function EventDetailPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-foreground">Arquivos do Evento</h3>
             <div>
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
               <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
                 <Upload className="h-4 w-4 mr-1" />{isUploading ? 'Enviando...' : 'Upload'}
               </Button>
