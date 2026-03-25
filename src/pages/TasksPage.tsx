@@ -140,6 +140,13 @@ export default function TasksPage() {
     if (!error) {
       toast({ title: 'Tarefa atualizada!' });
       setIsEditDialogOpen(false);
+      // Notify responsible if changed
+      if (editingTask.responsible_id && editingTask.responsible_id !== user?.id) {
+        await supabase.from('notifications').insert({
+          user_id: editingTask.responsible_id, type: 'task_updated',
+          title: 'Tarefa atualizada', message: editingTask.title, link: '/tasks',
+        });
+      }
       setEditingTask(null);
       fetchTasks();
     } else {
@@ -148,6 +155,24 @@ export default function TasksPage() {
   };
 
   const deleteTask = async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    // Notify participants before deleting
+    if (task) {
+      const { data: participants } = await supabase.from('task_participants').select('user_id').eq('task_id', taskId);
+      const notifyUsers = new Set<string>();
+      if (task.responsible_id && task.responsible_id !== user?.id) notifyUsers.add(task.responsible_id);
+      participants?.forEach(p => { if (p.user_id !== user?.id) notifyUsers.add(p.user_id); });
+      for (const uid of notifyUsers) {
+        await supabase.from('notifications').insert({
+          user_id: uid, type: 'task_deleted',
+          title: 'Tarefa excluída', message: task.title, link: '/tasks',
+        });
+      }
+    }
+    // Clean up related data
+    await supabase.from('event_tasks').delete().eq('task_id', taskId);
+    await supabase.from('task_participants').delete().eq('task_id', taskId);
+    await supabase.from('task_comments').delete().eq('task_id', taskId);
     const { error } = await supabase.from('tasks').delete().eq('id', taskId);
     if (!error) {
       toast({ title: 'Tarefa excluída!' });

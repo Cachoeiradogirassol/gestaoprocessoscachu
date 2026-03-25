@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Shield, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface TeamMember {
@@ -32,16 +32,17 @@ const roleBadgeColors: Record<string, string> = {
 };
 
 export default function TeamPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const { toast } = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
 
   const fetchMembers = async () => {
     const { data: profiles } = await supabase.from('profiles').select('user_id, full_name, cargo, setor');
     const { data: roles } = await supabase.from('user_roles').select('user_id, role');
-    
     if (profiles && roles) {
       const combined = profiles.map(p => ({
         ...p,
@@ -55,12 +56,7 @@ export default function TeamPage() {
 
   const createUser = async () => {
     if (!newUser.email || !newUser.password || !newUser.full_name) return;
-    
-    // Use edge function to create user (admin only)
-    const { data, error } = await supabase.functions.invoke('admin-create-user', {
-      body: newUser,
-    });
-
+    const { error } = await supabase.functions.invoke('admin-create-user', { body: newUser });
     if (error) {
       toast({ title: 'Erro', description: 'Não foi possível criar o usuário.', variant: 'destructive' });
     } else {
@@ -71,12 +67,52 @@ export default function TeamPage() {
     }
   };
 
+  const updateMember = async () => {
+    if (!editingMember) return;
+    // Update profile
+    const { error: profileError } = await supabase.from('profiles').update({
+      full_name: editingMember.full_name,
+      cargo: editingMember.cargo,
+      setor: editingMember.setor,
+    }).eq('user_id', editingMember.user_id);
+
+    // Update role
+    const { error: roleError } = await supabase.from('user_roles').update({
+      role: editingMember.role as any,
+    }).eq('user_id', editingMember.user_id);
+
+    if (profileError || roleError) {
+      toast({ title: 'Erro ao atualizar', variant: 'destructive' });
+    } else {
+      toast({ title: 'Membro atualizado!' });
+      setIsEditDialogOpen(false);
+      setEditingMember(null);
+      fetchMembers();
+    }
+  };
+
+  const deleteMember = async (userId: string) => {
+    if (userId === user?.id) {
+      toast({ title: 'Erro', description: 'Você não pode excluir a si mesmo.', variant: 'destructive' });
+      return;
+    }
+    if (!confirm('Excluir este usuário? As tarefas atribuídas a ele ficarão sem responsável.')) return;
+
+    // Unassign tasks
+    await supabase.from('tasks').update({ responsible_id: null }).eq('responsible_id', userId);
+    // Remove participants
+    await supabase.from('task_participants').delete().eq('user_id', userId);
+    await supabase.from('event_participants').delete().eq('user_id', userId);
+    // Remove profile and role (user in auth remains but is effectively disabled)
+    await supabase.from('user_roles').delete().eq('user_id', userId);
+    await supabase.from('profiles').delete().eq('user_id', userId);
+
+    toast({ title: 'Usuário removido!' });
+    fetchMembers();
+  };
+
   const updateRole = async (userId: string, newRole: string) => {
-    const { error } = await supabase
-      .from('user_roles')
-      .update({ role: newRole as any })
-      .eq('user_id', userId);
-    
+    const { error } = await supabase.from('user_roles').update({ role: newRole as any }).eq('user_id', userId);
     if (!error) {
       toast({ title: 'Permissão atualizada!' });
       fetchMembers();
@@ -139,21 +175,55 @@ export default function TeamPage() {
                 </Badge>
               </div>
               {isAdmin && (
-                <div className="mt-3 pt-3 border-t border-border">
+                <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
                   <Select value={m.role} onValueChange={v => updateRole(m.user_id, v)}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="operacional">Operacional</SelectItem>
                       <SelectItem value="gestor">Gestor</SelectItem>
                       <SelectItem value="admin">Administrador</SelectItem>
                     </SelectContent>
                   </Select>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingMember({ ...m }); setIsEditDialogOpen(true); }}>
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteMember(m.user_id)}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </Button>
                 </div>
               )}
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {/* Edit Member Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={(v) => { setIsEditDialogOpen(v); if (!v) setEditingMember(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar Membro</DialogTitle></DialogHeader>
+          {editingMember && (
+            <div className="space-y-4">
+              <div><Label>Nome completo</Label><Input value={editingMember.full_name} onChange={e => setEditingMember(p => p ? { ...p, full_name: e.target.value } : null)} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Cargo</Label><Input value={editingMember.cargo || ''} onChange={e => setEditingMember(p => p ? { ...p, cargo: e.target.value } : null)} /></div>
+                <div><Label>Setor</Label><Input value={editingMember.setor || ''} onChange={e => setEditingMember(p => p ? { ...p, setor: e.target.value } : null)} /></div>
+              </div>
+              <div>
+                <Label>Nível de Acesso</Label>
+                <Select value={editingMember.role} onValueChange={v => setEditingMember(p => p ? { ...p, role: v } : null)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="operacional">Operacional</SelectItem>
+                    <SelectItem value="gestor">Gestor</SelectItem>
+                    <SelectItem value="admin">Administrador</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={updateMember} className="w-full">Salvar Alterações</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

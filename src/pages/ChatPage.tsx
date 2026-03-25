@@ -74,6 +74,12 @@ export default function ChatPage() {
       receiver_id: selectedUser,
       content: newMessage.trim(),
     });
+    // Notify receiver
+    await supabase.from('notifications').insert({
+      user_id: selectedUser, type: 'new_message',
+      title: `Nova mensagem de ${profiles.find(p => p.user_id === user.id)?.full_name || 'alguém'}`,
+      message: newMessage.trim().slice(0, 100), link: '/chat',
+    });
     setNewMessage('');
   };
 

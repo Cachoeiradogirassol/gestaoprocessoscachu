@@ -284,6 +284,7 @@ export type Database = {
           is_announcement: boolean | null
           receiver_id: string | null
           reply_to_id: string | null
+          routine_id: string | null
           sender_id: string
           task_id: string | null
         }
@@ -295,6 +296,7 @@ export type Database = {
           is_announcement?: boolean | null
           receiver_id?: string | null
           reply_to_id?: string | null
+          routine_id?: string | null
           sender_id: string
           task_id?: string | null
         }
@@ -306,6 +308,7 @@ export type Database = {
           is_announcement?: boolean | null
           receiver_id?: string | null
           reply_to_id?: string | null
+          routine_id?: string | null
           sender_id?: string
           task_id?: string | null
         }
@@ -322,6 +325,13 @@ export type Database = {
             columns: ["reply_to_id"]
             isOneToOne: false
             referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_routine_id_fkey"
+            columns: ["routine_id"]
+            isOneToOne: false
+            referencedRelation: "routines"
             referencedColumns: ["id"]
           },
           {
@@ -396,6 +406,118 @@ export type Database = {
           setor?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      routine_files: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_size: number | null
+          file_type: string | null
+          file_url: string
+          id: string
+          routine_id: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_size?: number | null
+          file_type?: string | null
+          file_url: string
+          id?: string
+          routine_id: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_size?: number | null
+          file_type?: string | null
+          file_url?: string
+          id?: string
+          routine_id?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_files_routine_id_fkey"
+            columns: ["routine_id"]
+            isOneToOne: false
+            referencedRelation: "routines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routine_flows: {
+        Row: {
+          created_at: string
+          edges: Json
+          id: string
+          name: string
+          nodes: Json
+          routine_id: string
+          updated_at: string
+          viewport: Json | null
+        }
+        Insert: {
+          created_at?: string
+          edges?: Json
+          id?: string
+          name?: string
+          nodes?: Json
+          routine_id: string
+          updated_at?: string
+          viewport?: Json | null
+        }
+        Update: {
+          created_at?: string
+          edges?: Json
+          id?: string
+          name?: string
+          nodes?: Json
+          routine_id?: string
+          updated_at?: string
+          viewport?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "routine_flows_routine_id_fkey"
+            columns: ["routine_id"]
+            isOneToOne: false
+            referencedRelation: "routines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      routines: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+          setor: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          setor?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          setor?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
