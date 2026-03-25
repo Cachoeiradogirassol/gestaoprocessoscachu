@@ -130,6 +130,21 @@ export default function EventDetailPage() {
       sender_id: user.id, content: newMessage.trim(), event_id: id,
       reply_to_id: replyTo?.id || null,
     });
+    // Notify mentions
+    const mentions = newMessage.match(/@(\w+)/g);
+    if (mentions) {
+      for (const mention of mentions) {
+        const name = mention.slice(1);
+        const mentioned = profiles.find(p => p.full_name.toLowerCase().includes(name.toLowerCase()));
+        if (mentioned && mentioned.user_id !== user.id) {
+          await supabase.from('notifications').insert({
+            user_id: mentioned.user_id, type: 'mention',
+            title: `${getProfileName(user.id)} mencionou você`,
+            message: newMessage.slice(0, 100), link: `/events/${id}`,
+          });
+        }
+      }
+    }
     setNewMessage('');
     setReplyTo(null);
   };
