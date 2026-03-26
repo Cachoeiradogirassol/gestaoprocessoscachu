@@ -39,49 +39,68 @@ export default function TeamPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
+  const [isCreating, setIsCreating] = useState(false);
 
   const fetchMembers = async () => {
-    const { data: profiles } = await supabase.from('profiles').select('user_id, full_name, cargo, setor');
-    const { data: roles } = await supabase.from('user_roles').select('user_id, role');
-    if (profiles && roles) {
-      const combined = profiles.map(p => ({
-        ...p,
-        role: roles.find(r => r.user_id === p.user_id)?.role || 'operacional',
-      }));
-      setMembers(combined);
+    try {
+      const { data: profiles } = await supabase.from('profiles').select('user_id, full_name, cargo, setor');
+      const { data: roles } = await supabase.from('user_roles').select('user_id, role');
+      if (profiles && roles) {
+        const combined = profiles.map(p => ({
+          ...p,
+          role: roles.find(r => r.user_id === p.user_id)?.role || 'operacional',
+        }));
+        setMembers(combined);
+      }
+    } catch (err) {
+      console.error('Error fetching members:', err);
     }
   };
 
   useEffect(() => { fetchMembers(); }, []);
 
   const createUser = async () => {
-    if (!newUser.email || !newUser.password || !newUser.full_name) return;
-    const { error } = await supabase.functions.invoke('admin-create-user', { body: newUser });
-    if (error) {
-      toast({ title: 'Erro', description: 'Não foi possível criar o usuário.', variant: 'destructive' });
-    } else {
-      toast({ title: 'Usuário criado!' });
-      setNewUser({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
-      setIsDialogOpen(false);
-      fetchMembers();
+    if (!newUser.email || !newUser.password || !newUser.full_name) {
+      toast({ title: 'Erro', description: 'Preencha todos os campos obrigatórios.', variant: 'destructive' });
+      return;
     }
+    if (newUser.password.length < 6) {
+      toast({ title: 'Erro', description: 'A senha deve ter pelo menos 6 caracteres.', variant: 'destructive' });
+      return;
+    }
+    setIsCreating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-create-user', { body: newUser });
+      if (error) {
+        console.error('Create user error:', error);
+        toast({ title: 'Erro', description: 'Não foi possível criar o usuário. Verifique os dados.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Usuário criado com sucesso!' });
+        setNewUser({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
+        setIsDialogOpen(false);
+        setTimeout(fetchMembers, 1000); // Wait for triggers
+      }
+    } catch (err) {
+      console.error('Create user exception:', err);
+      toast({ title: 'Erro inesperado', variant: 'destructive' });
+    }
+    setIsCreating(false);
   };
 
   const updateMember = async () => {
     if (!editingMember) return;
-    // Update profile
     const { error: profileError } = await supabase.from('profiles').update({
       full_name: editingMember.full_name,
       cargo: editingMember.cargo,
       setor: editingMember.setor,
     }).eq('user_id', editingMember.user_id);
 
-    // Update role
     const { error: roleError } = await supabase.from('user_roles').update({
       role: editingMember.role as any,
     }).eq('user_id', editingMember.user_id);
 
     if (profileError || roleError) {
+      console.error('Update member error:', profileError, roleError);
       toast({ title: 'Erro ao atualizar', variant: 'destructive' });
     } else {
       toast({ title: 'Membro atualizado!' });
@@ -98,17 +117,26 @@ export default function TeamPage() {
     }
     if (!confirm('Excluir este usuário? As tarefas atribuídas a ele ficarão sem responsável.')) return;
 
-    // Unassign tasks
-    await supabase.from('tasks').update({ responsible_id: null }).eq('responsible_id', userId);
-    // Remove participants
-    await supabase.from('task_participants').delete().eq('user_id', userId);
-    await supabase.from('event_participants').delete().eq('user_id', userId);
-    // Remove profile and role (user in auth remains but is effectively disabled)
-    await supabase.from('user_roles').delete().eq('user_id', userId);
-    await supabase.from('profiles').delete().eq('user_id', userId);
-
-    toast({ title: 'Usuário removido!' });
-    fetchMembers();
+    try {
+      // Unassign tasks
+      await supabase.from('tasks').update({ responsible_id: null }).eq('responsible_id', userId);
+      // Remove participants
+      await supabase.from('task_participants').delete().eq('user_id', userId);
+      await supabase.from('event_participants').delete().eq('user_id', userId);
+      // Remove role then profile
+      await supabase.from('user_roles').delete().eq('user_id', userId);
+      const { error } = await supabase.from('profiles').delete().eq('user_id', userId);
+      if (error) {
+        console.error('Delete profile error:', error);
+        toast({ title: 'Erro ao excluir', description: error.message, variant: 'destructive' });
+      } else {
+        toast({ title: 'Usuário removido!' });
+        fetchMembers();
+      }
+    } catch (err) {
+      console.error('Delete member exception:', err);
+      toast({ title: 'Erro inesperado', variant: 'destructive' });
+    }
   };
 
   const updateRole = async (userId: string, newRole: string) => {
@@ -133,7 +161,7 @@ export default function TeamPage() {
               <div className="space-y-4">
                 <div><Label>Nome completo *</Label><Input value={newUser.full_name} onChange={e => setNewUser(p => ({ ...p, full_name: e.target.value }))} /></div>
                 <div><Label>Email *</Label><Input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} /></div>
-                <div><Label>Senha *</Label><Input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} /></div>
+                <div><Label>Senha * (mín. 6 caracteres)</Label><Input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Cargo</Label><Input value={newUser.cargo} onChange={e => setNewUser(p => ({ ...p, cargo: e.target.value }))} /></div>
                   <div><Label>Setor</Label><Input value={newUser.setor} onChange={e => setNewUser(p => ({ ...p, setor: e.target.value }))} /></div>
@@ -149,7 +177,9 @@ export default function TeamPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={createUser} className="w-full">Criar Usuário</Button>
+                <Button onClick={createUser} className="w-full" disabled={isCreating}>
+                  {isCreating ? 'Criando...' : 'Criar Usuário'}
+                </Button>
               </div>
             </DialogContent>
           </Dialog>

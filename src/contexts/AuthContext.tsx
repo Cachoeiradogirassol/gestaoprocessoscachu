@@ -59,22 +59,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    // First get the session, then set up the listener
+    supabase.auth.getSession().then(({ data: { session: currentSession }, error }) => {
+      if (!mounted) return;
+      
+      if (error) {
+        console.error('Session error:', error);
+        // Clear invalid session silently
+        supabase.auth.signOut().catch(() => {});
+        setLoading(false);
+        return;
+      }
+      
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      if (currentSession?.user) {
+        fetchProfile(currentSession.user.id).finally(() => {
+          if (mounted) setLoading(false);
+        });
+      } else {
+        setLoading(false);
+      }
+    });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, newSession) => {
         if (!mounted) return;
         
-        // Handle token refresh failures gracefully
-        if (event === 'TOKEN_REFRESHED' && !session) {
-          console.warn('Token refresh failed, signing out');
-          setUser(null);
-          setSession(null);
-          setProfile(null);
-          setRole('operacional');
-          setLoading(false);
-          return;
-        }
-
-        if (event === 'SIGNED_OUT') {
+        if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !newSession)) {
           setUser(null);
           setSession(null);
           setProfile(null);
@@ -83,12 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         
-        setSession(session);
-        setUser(session?.user ?? null);
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
         
-        if (session?.user) {
+        if (newSession?.user) {
+          // Use setTimeout to avoid async in listener
           setTimeout(() => {
-            if (mounted) fetchProfile(session.user.id);
+            if (mounted) fetchProfile(newSession.user.id);
           }, 0);
         } else {
           setProfile(null);
@@ -97,25 +110,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     );
-
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (!mounted) return;
-      
-      if (error) {
-        console.error('Session error:', error);
-        // Clear invalid session
-        supabase.auth.signOut().catch(() => {});
-        setLoading(false);
-        return;
-      }
-      
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      }
-      setLoading(false);
-    });
 
     return () => {
       mounted = false;
@@ -129,9 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
     setProfile(null);
     setRole('operacional');
+    await supabase.auth.signOut();
   };
 
   return (

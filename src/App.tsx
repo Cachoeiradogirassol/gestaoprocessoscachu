@@ -8,14 +8,12 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import TasksPage from "./pages/TasksPage";
-import EventsPage from "./pages/EventsPage";
-import EventDetailPage from "./pages/EventDetailPage";
+import ProjectsPage from "./pages/ProjectsPage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import CalendarPage from "./pages/CalendarPage";
 import ChatPage from "./pages/ChatPage";
 import TeamPage from "./pages/TeamPage";
 import ReportsPage from "./pages/ReportsPage";
-import ProcessesPage from "./pages/ProcessesPage";
-import ProcessDetailPage from "./pages/ProcessDetailPage";
 import AppLayout from "./components/layout/AppLayout";
 import AiFloatingChat from "./components/AiFloatingChat";
 import NotFound from "./pages/NotFound";
@@ -69,12 +67,15 @@ function AppContent() {
         <Route path="/login" element={<AuthRoute><LoginPage /></AuthRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
-        <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
-        <Route path="/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
+        <Route path="/projects" element={<ProtectedRoute><ProjectsPage /></ProtectedRoute>} />
+        <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
+        {/* Legacy routes redirect */}
+        <Route path="/events" element={<Navigate to="/projects" replace />} />
+        <Route path="/events/:id" element={<Navigate to="/projects" replace />} />
+        <Route path="/processes" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/processes/:id" element={<Navigate to="/dashboard" replace />} />
         <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
         <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
-        <Route path="/processes" element={<ProtectedRoute><ProcessesPage /></ProtectedRoute>} />
-        <Route path="/processes/:id" element={<ProtectedRoute><ProcessDetailPage /></ProtectedRoute>} />
         <Route path="/team" element={<ProtectedRoute roles={['admin', 'gestor']}><TeamPage /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute roles={['admin', 'gestor']}><ReportsPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
