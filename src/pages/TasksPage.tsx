@@ -10,8 +10,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X } from 'lucide-react';
+import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -22,11 +23,15 @@ type RecurrenceType = 'diario' | 'semanal' | 'mensal';
 interface Task {
   id: string; title: string; description: string | null; status: TaskStatus; priority: TaskPriority;
   due_date: string | null; responsible_id: string | null; setor: string | null; created_at: string;
-  created_by: string | null; is_recurring: boolean | null; recurrence_type: RecurrenceType | null; recurrence_config: any;
+  created_by: string | null; is_recurring: boolean | null; recurrence_type: RecurrenceType | null;
+  recurrence_config: any; checklist: any;
 }
 
 interface Profile { user_id: string; full_name: string; }
 interface Message { id: string; sender_id: string; content: string; created_at: string; task_id: string | null; reply_to_id: string | null; }
+interface TaskFile { id: string; file_name: string; file_url: string; file_type: string | null; file_size: number | null; uploaded_by: string | null; created_at: string; }
+
+interface ChecklistItem { id: string; text: string; done: boolean; }
 
 const columns: { key: TaskStatus; label: string; color: string }[] = [
   { key: 'backlog', label: 'Backlog', color: 'bg-status-backlog' },
@@ -63,18 +68,26 @@ export default function TasksPage() {
   const [newTask, setNewTask] = useState({ ...emptyTask });
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  // Task detail/chat
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskMessages, setTaskMessages] = useState<Message[]>([]);
+  const [taskFiles, setTaskFiles] = useState<TaskFile[]>([]);
+  const [taskParticipants, setTaskParticipants] = useState<string[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const [groupByUser, setGroupByUser] = useState(false);
+  const [newChecklistItem, setNewChecklistItem] = useState('');
+  const [addParticipantId, setAddParticipantId] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchTasks = async () => {
-    const { data } = await supabase.from('tasks').select('*').order('created_at', { ascending: false });
-    if (data) setTasks(data as Task[]);
+    try {
+      const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false });
+      if (error) { console.error('Fetch tasks error:', error); return; }
+      if (data) setTasks(data as Task[]);
+    } catch (err) { console.error('Fetch tasks exception:', err); }
   };
   const fetchProfiles = async () => {
     const { data } = await supabase.from('profiles').select('user_id, full_name');
@@ -83,14 +96,25 @@ export default function TasksPage() {
 
   useEffect(() => { fetchTasks(); fetchProfiles(); }, []);
 
+  // Task detail data
   const fetchTaskMessages = async (taskId: string) => {
     const { data } = await supabase.from('messages').select('*').eq('task_id', taskId).order('created_at', { ascending: true });
     if (data) setTaskMessages(data as Message[]);
+  };
+  const fetchTaskFiles = async (taskId: string) => {
+    const { data } = await supabase.from('task_files').select('*').eq('task_id', taskId).order('created_at', { ascending: false });
+    if (data) setTaskFiles(data as TaskFile[]);
+  };
+  const fetchTaskParticipants = async (taskId: string) => {
+    const { data } = await supabase.from('task_participants').select('user_id').eq('task_id', taskId);
+    if (data) setTaskParticipants(data.map(p => p.user_id));
   };
 
   useEffect(() => {
     if (!selectedTask) return;
     fetchTaskMessages(selectedTask.id);
+    fetchTaskFiles(selectedTask.id);
+    fetchTaskParticipants(selectedTask.id);
     const channel = supabase.channel(`task-chat-${selectedTask.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `task_id=eq.${selectedTask.id}` }, (payload) => {
         setTaskMessages(prev => [...prev, payload.new as Message]);
@@ -112,13 +136,13 @@ export default function TasksPage() {
       recurrence_type: newTask.is_recurring ? newTask.recurrence_type : null, recurrence_config: recurrenceConfig,
     });
     if (error) {
-      toast({ title: 'Erro', description: 'Não foi possível criar a tarefa.', variant: 'destructive' });
+      console.error('Create task error:', error);
+      toast({ title: 'Erro', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: 'Tarefa criada!' });
       setNewTask({ ...emptyTask });
       setIsDialogOpen(false);
       fetchTasks();
-      // Notify responsible
       if (newTask.responsible_id && newTask.responsible_id !== user?.id) {
         await supabase.from('notifications').insert({
           user_id: newTask.responsible_id, type: 'task_assigned',
@@ -140,7 +164,6 @@ export default function TasksPage() {
     if (!error) {
       toast({ title: 'Tarefa atualizada!' });
       setIsEditDialogOpen(false);
-      // Notify responsible if changed
       if (editingTask.responsible_id && editingTask.responsible_id !== user?.id) {
         await supabase.from('notifications').insert({
           user_id: editingTask.responsible_id, type: 'task_updated',
@@ -150,13 +173,13 @@ export default function TasksPage() {
       setEditingTask(null);
       fetchTasks();
     } else {
-      toast({ title: 'Erro ao atualizar', variant: 'destructive' });
+      console.error('Update task error:', error);
+      toast({ title: 'Erro ao atualizar', description: error.message, variant: 'destructive' });
     }
   };
 
   const deleteTask = async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
-    // Notify participants before deleting
     if (task) {
       const { data: participants } = await supabase.from('task_participants').select('user_id').eq('task_id', taskId);
       const notifyUsers = new Set<string>();
@@ -164,15 +187,14 @@ export default function TasksPage() {
       participants?.forEach(p => { if (p.user_id !== user?.id) notifyUsers.add(p.user_id); });
       for (const uid of notifyUsers) {
         await supabase.from('notifications').insert({
-          user_id: uid, type: 'task_deleted',
-          title: 'Tarefa excluída', message: task.title, link: '/tasks',
+          user_id: uid, type: 'task_deleted', title: 'Tarefa excluída', message: task.title, link: '/tasks',
         });
       }
     }
-    // Clean up related data
     await supabase.from('event_tasks').delete().eq('task_id', taskId);
     await supabase.from('task_participants').delete().eq('task_id', taskId);
     await supabase.from('task_comments').delete().eq('task_id', taskId);
+    await supabase.from('task_files').delete().eq('task_id', taskId);
     const { error } = await supabase.from('tasks').delete().eq('id', taskId);
     if (!error) {
       toast({ title: 'Tarefa excluída!' });
@@ -184,7 +206,7 @@ export default function TasksPage() {
   };
 
   const canEditTask = (task: Task) => isAdmin || isGestor || task.responsible_id === user?.id || task.created_by === user?.id;
-  const canDeleteTask = (task: Task) => isAdmin || task.created_by === user?.id;
+  const canDeleteTask = (task: Task) => isAdmin || isGestor || task.created_by === user?.id;
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
     const { error } = await supabase.from('tasks').update({
@@ -201,7 +223,89 @@ export default function TasksPage() {
     return profiles.find(p => p.user_id === userId)?.full_name || 'Usuário';
   };
 
-  // Chat helpers
+  // Checklist
+  const getChecklist = (): ChecklistItem[] => {
+    if (!selectedTask?.checklist) return [];
+    try { return Array.isArray(selectedTask.checklist) ? selectedTask.checklist : []; }
+    catch { return []; }
+  };
+
+  const updateChecklist = async (newChecklist: ChecklistItem[]) => {
+    if (!selectedTask) return;
+    await supabase.from('tasks').update({ checklist: newChecklist as any }).eq('id', selectedTask.id);
+    setSelectedTask({ ...selectedTask, checklist: newChecklist });
+    setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, checklist: newChecklist } : t));
+  };
+
+  const addChecklistItem = () => {
+    if (!newChecklistItem.trim()) return;
+    const cl = getChecklist();
+    cl.push({ id: `cl-${Date.now()}`, text: newChecklistItem.trim(), done: false });
+    updateChecklist(cl);
+    setNewChecklistItem('');
+  };
+
+  const toggleChecklistItem = (itemId: string) => {
+    const cl = getChecklist().map(i => i.id === itemId ? { ...i, done: !i.done } : i);
+    updateChecklist(cl);
+  };
+
+  const removeChecklistItem = (itemId: string) => {
+    const cl = getChecklist().filter(i => i.id !== itemId);
+    updateChecklist(cl);
+  };
+
+  // Participants
+  const addTaskParticipant = async () => {
+    if (!addParticipantId || !selectedTask) return;
+    if (taskParticipants.includes(addParticipantId)) return;
+    await supabase.from('task_participants').insert({ task_id: selectedTask.id, user_id: addParticipantId });
+    await supabase.from('notifications').insert({
+      user_id: addParticipantId, type: 'task_participant',
+      title: 'Você foi adicionado a uma tarefa', message: selectedTask.title, link: '/tasks',
+    });
+    setAddParticipantId('');
+    fetchTaskParticipants(selectedTask.id);
+    toast({ title: 'Participante adicionado!' });
+  };
+
+  const removeTaskParticipant = async (userId: string) => {
+    if (!selectedTask) return;
+    await supabase.from('task_participants').delete().eq('task_id', selectedTask.id).eq('user_id', userId);
+    fetchTaskParticipants(selectedTask.id);
+  };
+
+  // File upload
+  const handleTaskFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadFiles = e.target.files;
+    if (!uploadFiles || !selectedTask || !user) return;
+    setIsUploading(true);
+    let count = 0;
+    for (const file of Array.from(uploadFiles)) {
+      try {
+        const filePath = `${selectedTask.id}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage.from('task-files').upload(filePath, file);
+        if (uploadError) continue;
+        const { data: urlData } = supabase.storage.from('task-files').getPublicUrl(filePath);
+        const { error: insertError } = await supabase.from('task_files').insert({
+          task_id: selectedTask.id, file_name: file.name, file_url: urlData.publicUrl,
+          file_type: file.type, file_size: file.size, uploaded_by: user.id,
+        });
+        if (!insertError) count++;
+      } catch (err) { console.error(err); }
+    }
+    setIsUploading(false);
+    if (count > 0) toast({ title: `${count} arquivo(s) enviado(s)!` });
+    fetchTaskFiles(selectedTask.id);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const deleteTaskFile = async (fileId: string) => {
+    await supabase.from('task_files').delete().eq('id', fileId);
+    if (selectedTask) fetchTaskFiles(selectedTask.id);
+  };
+
+  // Chat
   const handleMessageInput = (value: string) => {
     setNewMessage(value);
     const lastAt = value.lastIndexOf('@');
@@ -224,7 +328,6 @@ export default function TasksPage() {
       sender_id: user.id, content: newMessage.trim(), task_id: selectedTask.id,
       reply_to_id: replyTo?.id || null,
     });
-    // Notify mentioned users
     const mentions = newMessage.match(/@(\w+)/g);
     if (mentions) {
       for (const mention of mentions) {
@@ -252,11 +355,18 @@ export default function TasksPage() {
   const handleDragLeave = () => setDragOverCol(null);
   const handleDrop = (e: React.DragEvent, colKey: TaskStatus) => { e.preventDefault(); setDragOverCol(null); if (draggedTask) { updateTaskStatus(draggedTask, colKey); setDraggedTask(null); } };
 
-  // Grouped users for admin kanban
   const uniqueResponsibles = Array.from(new Set(tasks.map(t => t.responsible_id).filter(Boolean))) as string[];
 
-  const openTaskDetail = (task: Task) => {
-    setSelectedTask(task);
+  const openTaskDetail = (task: Task) => setSelectedTask(task);
+
+  const checklist = selectedTask ? getChecklist() : [];
+  const checklistProgress = checklist.length > 0 ? Math.round((checklist.filter(i => i.done).length / checklist.length) * 100) : 0;
+
+  const formatFileSize = (bytes: number | null) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const renderTaskCard = (task: Task) => (
@@ -303,7 +413,6 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex gap-2">
           <Button variant={viewMode === 'kanban' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('kanban')}>Kanban</Button>
@@ -348,7 +457,7 @@ export default function TasksPage() {
         </Dialog>
       </div>
 
-      {/* Kanban View */}
+      {/* Kanban */}
       {viewMode === 'kanban' && !groupByUser && (
         <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-thin">
           {columns.map(col => {
@@ -361,16 +470,13 @@ export default function TasksPage() {
                   <span className="text-sm font-semibold text-foreground">{col.label}</span>
                   <span className="text-xs text-muted-foreground ml-auto">{colTasks.length}</span>
                 </div>
-                <div className="space-y-2 min-h-[100px]">
-                  {colTasks.map(renderTaskCard)}
-                </div>
+                <div className="space-y-2 min-h-[100px]">{colTasks.map(renderTaskCard)}</div>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Kanban grouped by user (Admin) */}
       {viewMode === 'kanban' && groupByUser && (
         <div className="space-y-6 pb-4">
           {uniqueResponsibles.map(userId => {
@@ -379,11 +485,9 @@ export default function TasksPage() {
             return (
               <div key={userId}>
                 <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
-                    {userName.charAt(0).toUpperCase()}
-                  </div>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{userName.charAt(0).toUpperCase()}</div>
                   {userName}
-                  <span className="text-xs text-muted-foreground font-normal">({userTasks.length} tarefas)</span>
+                  <span className="text-xs text-muted-foreground font-normal">({userTasks.length})</span>
                 </h3>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
                   {columns.map(col => {
@@ -396,9 +500,7 @@ export default function TasksPage() {
                           <span className="text-xs font-medium text-foreground">{col.label}</span>
                           <span className="text-[10px] text-muted-foreground ml-auto">{colTasks.length}</span>
                         </div>
-                        <div className="space-y-2 min-h-[60px]">
-                          {colTasks.map(renderTaskCard)}
-                        </div>
+                        <div className="space-y-2 min-h-[60px]">{colTasks.map(renderTaskCard)}</div>
                       </div>
                     );
                   })}
@@ -409,7 +511,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* List View */}
+      {/* List */}
       {viewMode === 'list' && (
         <Card className="border-border">
           <CardContent className="p-0">
@@ -420,10 +522,7 @@ export default function TasksPage() {
                 <div key={task.id} className="flex items-center gap-3 p-3 hover:bg-accent/30 transition-colors">
                   <div className={`h-2 w-2 rounded-full shrink-0 ${columns.find(c => c.key === task.status)?.color}`} />
                   <button onClick={() => openTaskDetail(task)} className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
-                      {task.is_recurring && <Badge variant="outline" className="text-[10px]">🔁</Badge>}
-                    </div>
+                    <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
                     <p className="text-xs text-muted-foreground">{getProfileName(task.responsible_id)}</p>
                   </button>
                   <Badge className={priorityColors[task.priority]} variant="outline">{task.priority}</Badge>
@@ -443,7 +542,7 @@ export default function TasksPage() {
                       </button>
                     )}
                     {canDeleteTask(task) && (
-                      <button onClick={() => { if (confirm('Excluir esta tarefa?')) deleteTask(task.id); }} className="p-1.5 hover:bg-accent rounded">
+                      <button onClick={() => { if (confirm('Excluir?')) deleteTask(task.id); }} className="p-1.5 hover:bg-accent rounded">
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </button>
                     )}
@@ -478,9 +577,9 @@ export default function TasksPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Task Detail + Chat Dialog */}
-      <Dialog open={!!selectedTask} onOpenChange={(v) => { if (!v) { setSelectedTask(null); setTaskMessages([]); } }}>
-        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col p-0">
+      {/* Task Detail Dialog */}
+      <Dialog open={!!selectedTask} onOpenChange={(v) => { if (!v) { setSelectedTask(null); setTaskMessages([]); setTaskFiles([]); setTaskParticipants([]); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
           {selectedTask && (
             <>
               <div className="px-4 pt-4 pb-2 border-b border-border">
@@ -491,6 +590,11 @@ export default function TasksPage() {
                       <Badge className={priorityColors[selectedTask.priority]} variant="outline">{selectedTask.priority}</Badge>
                       <Badge variant="secondary" className="text-xs">{columns.find(c => c.key === selectedTask.status)?.label}</Badge>
                       <span className="text-xs text-muted-foreground">{getProfileName(selectedTask.responsible_id)}</span>
+                      {selectedTask.due_date && (
+                        <span className={`text-xs ${new Date(selectedTask.due_date) < new Date() && selectedTask.status !== 'concluido' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          <Calendar className="h-3 w-3 inline mr-0.5" />{format(new Date(selectedTask.due_date), 'dd/MM/yyyy')}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-1">
@@ -500,7 +604,7 @@ export default function TasksPage() {
                       </button>
                     )}
                     {canDeleteTask(selectedTask) && (
-                      <button onClick={() => { if (confirm('Excluir?')) { deleteTask(selectedTask.id); } }} className="p-1.5 hover:bg-accent rounded">
+                      <button onClick={() => { if (confirm('Excluir?')) deleteTask(selectedTask.id); }} className="p-1.5 hover:bg-accent rounded">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </button>
                     )}
@@ -509,61 +613,161 @@ export default function TasksPage() {
                 {selectedTask.description && <p className="text-xs text-muted-foreground mt-2">{selectedTask.description}</p>}
               </div>
 
-              {/* Chat */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin min-h-[200px]">
-                {taskMessages.length === 0 && (
-                  <p className="text-xs text-muted-foreground text-center py-8">
-                    <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    Nenhuma mensagem. Inicie a conversa!
-                  </p>
-                )}
-                {taskMessages.map(msg => {
-                  const repliedMsg = msg.reply_to_id ? getMessageById(msg.reply_to_id) : null;
-                  return (
-                    <div key={msg.id} className={`flex ${msg.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${msg.sender_id === user?.id ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'}`}>
-                        {msg.sender_id !== user?.id && <p className="text-[10px] font-medium mb-0.5 opacity-70">{getProfileName(msg.sender_id)}</p>}
-                        {repliedMsg && (
-                          <div className={`text-[10px] border-l-2 pl-2 mb-1 ${msg.sender_id === user?.id ? 'border-primary-foreground/40 opacity-70' : 'border-primary/40 text-muted-foreground'}`}>
-                            <span className="font-medium">{getProfileName(repliedMsg.sender_id)}</span>
-                            <p className="truncate">{repliedMsg.content}</p>
-                          </div>
-                        )}
-                        <p className="whitespace-pre-wrap">{msg.content.split(/(@\w+)/g).map((part, i) =>
-                          part.startsWith('@') ? <span key={i} className="font-semibold">{part}</span> : part
-                        )}</p>
-                        <div className="flex items-center justify-between mt-1">
-                          <p className={`text-[10px] ${msg.sender_id === user?.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>{format(new Date(msg.created_at), 'HH:mm')}</p>
-                          <button onClick={() => setReplyTo(msg)} className={`text-[10px] hover:underline ${msg.sender_id === user?.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-                            <Reply className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
+              <Tabs defaultValue="chat" className="flex-1 flex flex-col overflow-hidden">
+                <TabsList className="mx-4 mt-2 grid grid-cols-4">
+                  <TabsTrigger value="chat" className="text-[10px]"><MessageSquare className="h-3 w-3 mr-1" />Chat</TabsTrigger>
+                  <TabsTrigger value="checklist" className="text-[10px]"><CheckSquare className="h-3 w-3 mr-1" />Checklist</TabsTrigger>
+                  <TabsTrigger value="files" className="text-[10px]"><Paperclip className="h-3 w-3 mr-1" />Arquivos</TabsTrigger>
+                  <TabsTrigger value="participants" className="text-[10px]"><Users className="h-3 w-3 mr-1" />Equipe</TabsTrigger>
+                </TabsList>
 
-              <div className="border-t border-border">
-                {replyTo && (
-                  <div className="px-3 pt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                    <Reply className="h-3 w-3" /><span className="truncate flex-1">Respondendo a <strong>{getProfileName(replyTo.sender_id)}</strong></span>
-                    <button onClick={() => setReplyTo(null)} className="text-foreground"><X className="h-3 w-3" /></button>
+                {/* Chat Tab */}
+                <TabsContent value="chat" className="flex-1 flex flex-col overflow-hidden m-0 p-0">
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin min-h-[200px]">
+                    {taskMessages.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-8">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />Nenhuma mensagem
+                      </p>
+                    )}
+                    {taskMessages.map(msg => {
+                      const repliedMsg = msg.reply_to_id ? getMessageById(msg.reply_to_id) : null;
+                      return (
+                        <div key={msg.id} className={`flex ${msg.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${msg.sender_id === user?.id ? 'bg-primary text-primary-foreground rounded-br-sm' : 'bg-muted text-foreground rounded-bl-sm'}`}>
+                            {msg.sender_id !== user?.id && <p className="text-[10px] font-medium mb-0.5 opacity-70">{getProfileName(msg.sender_id)}</p>}
+                            {repliedMsg && (
+                              <div className={`text-[10px] border-l-2 pl-2 mb-1 ${msg.sender_id === user?.id ? 'border-primary-foreground/40 opacity-70' : 'border-primary/40 text-muted-foreground'}`}>
+                                <span className="font-medium">{getProfileName(repliedMsg.sender_id)}</span>
+                                <p className="truncate">{repliedMsg.content}</p>
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{msg.content.split(/(@\w+)/g).map((part, i) =>
+                              part.startsWith('@') ? <span key={i} className="font-semibold">{part}</span> : part
+                            )}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <p className={`text-[10px] ${msg.sender_id === user?.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>{format(new Date(msg.created_at), 'HH:mm')}</p>
+                              <button onClick={() => setReplyTo(msg)} className={`text-[10px] hover:underline ${msg.sender_id === user?.id ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
+                                <Reply className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
                   </div>
-                )}
-                {mentionResults.length > 0 && (
-                  <div className="px-3 pt-2 flex gap-1 flex-wrap">
-                    {mentionResults.slice(0, 5).map(p => (
-                      <button key={p.user_id} onClick={() => insertMention(p.full_name)} className="text-xs bg-accent text-accent-foreground rounded px-2 py-1 hover:bg-accent/80">@{p.full_name}</button>
-                    ))}
+                  <div className="border-t border-border">
+                    {replyTo && (
+                      <div className="px-3 pt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Reply className="h-3 w-3" /><span className="truncate flex-1">Respondendo a <strong>{getProfileName(replyTo.sender_id)}</strong></span>
+                        <button onClick={() => setReplyTo(null)} className="text-foreground"><X className="h-3 w-3" /></button>
+                      </div>
+                    )}
+                    {mentionResults.length > 0 && (
+                      <div className="px-3 pt-2 flex gap-1 flex-wrap">
+                        {mentionResults.slice(0, 5).map(p => (
+                          <button key={p.user_id} onClick={() => insertMention(p.full_name)} className="text-xs bg-accent text-accent-foreground rounded px-2 py-1 hover:bg-accent/80">@{p.full_name}</button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="p-3 flex gap-2">
+                      <Input value={newMessage} onChange={e => handleMessageInput(e.target.value)} placeholder="Mensagem... (@ para mencionar)" onKeyDown={e => e.key === 'Enter' && sendTaskMessage()} className="flex-1" />
+                      <Button onClick={sendTaskMessage} size="icon"><Send className="h-4 w-4" /></Button>
+                    </div>
                   </div>
-                )}
-                <div className="p-3 flex gap-2">
-                  <Input value={newMessage} onChange={e => handleMessageInput(e.target.value)} placeholder="Mensagem... (@ para mencionar)" onKeyDown={e => e.key === 'Enter' && sendTaskMessage()} className="flex-1" />
-                  <Button onClick={sendTaskMessage} size="icon"><Send className="h-4 w-4" /></Button>
-                </div>
-              </div>
+                </TabsContent>
+
+                {/* Checklist Tab */}
+                <TabsContent value="checklist" className="flex-1 overflow-y-auto p-4 m-0 space-y-3">
+                  {checklist.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${checklistProgress}%` }} />
+                      </div>
+                      <span>{checklistProgress}%</span>
+                    </div>
+                  )}
+                  {checklist.map(item => (
+                    <div key={item.id} className="flex items-center gap-2">
+                      <Checkbox checked={item.done} onCheckedChange={() => toggleChecklistItem(item.id)} />
+                      <span className={`text-sm flex-1 ${item.done ? 'line-through text-muted-foreground' : 'text-foreground'}`}>{item.text}</span>
+                      <button onClick={() => removeChecklistItem(item.id)} className="p-1 hover:bg-accent rounded">
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Input value={newChecklistItem} onChange={e => setNewChecklistItem(e.target.value)} placeholder="Novo item..." onKeyDown={e => e.key === 'Enter' && addChecklistItem()} className="flex-1" />
+                    <Button onClick={addChecklistItem} size="sm" variant="outline"><Plus className="h-4 w-4" /></Button>
+                  </div>
+                </TabsContent>
+
+                {/* Files Tab */}
+                <TabsContent value="files" className="flex-1 overflow-y-auto p-4 m-0 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground">{taskFiles.length} arquivo(s)</p>
+                    <div>
+                      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleTaskFileUpload} />
+                      <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                        <Upload className="h-4 w-4 mr-1" />{isUploading ? 'Enviando...' : 'Upload'}
+                      </Button>
+                    </div>
+                  </div>
+                  {taskFiles.map(f => {
+                    const isImage = f.file_type?.startsWith('image/');
+                    return (
+                      <div key={f.id} className="flex items-center gap-3 p-2 rounded-lg border border-border">
+                        {isImage ? (
+                          <img src={f.file_url} alt={f.file_name} className="h-10 w-10 rounded object-cover shrink-0" />
+                        ) : (
+                          <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <a href={f.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline truncate block">{f.file_name}</a>
+                          <p className="text-[10px] text-muted-foreground">{formatFileSize(f.file_size)}</p>
+                        </div>
+                        <a href={f.file_url} download target="_blank" rel="noopener noreferrer"><Download className="h-4 w-4 text-muted-foreground" /></a>
+                        <button onClick={() => deleteTaskFile(f.id)} className="p-1 hover:bg-accent rounded"><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
+                      </div>
+                    );
+                  })}
+                </TabsContent>
+
+                {/* Participants Tab */}
+                <TabsContent value="participants" className="flex-1 overflow-y-auto p-4 m-0 space-y-3">
+                  <div className="flex gap-2">
+                    <Select value={addParticipantId} onValueChange={setAddParticipantId}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Adicionar participante..." /></SelectTrigger>
+                      <SelectContent>{profiles.filter(p => !taskParticipants.includes(p.user_id)).map(p => <SelectItem key={p.user_id} value={p.user_id}>{p.full_name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Button onClick={addTaskParticipant} size="sm"><Plus className="h-4 w-4" /></Button>
+                  </div>
+                  {/* Show responsible */}
+                  {selectedTask.responsible_id && (
+                    <div className="flex items-center gap-2 p-2 rounded-lg border border-border">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                        {getProfileName(selectedTask.responsible_id).charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-foreground flex-1">{getProfileName(selectedTask.responsible_id)}</span>
+                      <Badge variant="outline" className="text-[10px]">Responsável</Badge>
+                    </div>
+                  )}
+                  {taskParticipants.map(uid => (
+                    <div key={uid} className="flex items-center gap-2 p-2 rounded-lg border border-border">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
+                        {getProfileName(uid).charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-foreground flex-1">{getProfileName(uid)}</span>
+                      <button onClick={() => removeTaskParticipant(uid)} className="p-1 hover:bg-accent rounded">
+                        <X className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ))}
+                  {taskParticipants.length === 0 && !selectedTask.responsible_id && (
+                    <p className="text-sm text-muted-foreground text-center py-4">Nenhum participante</p>
+                  )}
+                </TabsContent>
+              </Tabs>
             </>
           )}
         </DialogContent>

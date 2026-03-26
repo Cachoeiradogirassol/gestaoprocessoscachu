@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ClipboardList, Calendar, CalendarDays, MessageSquare,
-  Users, BarChart3, LogOut, Menu, X, ChevronRight, GitBranch
+  Users, BarChart3, LogOut, Menu, X, ChevronRight, FolderKanban
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import NotificationBell from '@/components/NotificationBell';
@@ -11,10 +11,9 @@ import NotificationBell from '@/components/NotificationBell';
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: ClipboardList, label: 'Tarefas', path: '/tasks' },
-  { icon: Calendar, label: 'Eventos', path: '/events' },
+  { icon: FolderKanban, label: 'Projetos', path: '/projects' },
   { icon: CalendarDays, label: 'Calendário', path: '/calendar' },
   { icon: MessageSquare, label: 'Chat', path: '/chat' },
-  { icon: GitBranch, label: 'Processos', path: '/processes' },
   { icon: Users, label: 'Equipe', path: '/team', roles: ['admin', 'gestor'] },
   { icon: BarChart3, label: 'Relatórios', path: '/reports', roles: ['admin', 'gestor'] },
 ];
