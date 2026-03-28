@@ -34,11 +34,15 @@ export default function AiFloatingChat() {
 
     try {
       const action = JSON.parse(actionMatch[1]);
+      
       if (action.action === 'create_tasks' && action.tasks) {
         const { data: profiles } = await supabase.from('profiles').select('user_id, full_name');
         const { data: events } = await supabase.from('events').select('id, name');
+        const { data: existingTasks } = await supabase.from('tasks').select('id, title');
 
         let created = 0;
+        const createdTaskMap: Record<string, string> = {}; // title -> id
+
         for (const task of action.tasks) {
           const responsibleProfile = profiles?.find(p =>
             p.full_name.toLowerCase().includes((task.responsible_name || '').toLowerCase())
@@ -56,11 +60,46 @@ export default function AiFloatingChat() {
 
           if (taskData && !error) {
             created++;
-            // Link to event if specified
-            if (task.event_name) {
+            createdTaskMap[task.title.toLowerCase()] = taskData.id;
+
+            // Link to project if specified
+            const projectId = task.project_id;
+            if (projectId) {
+              await supabase.from('event_tasks').insert({ event_id: projectId, task_id: taskData.id });
+            } else if (task.event_name) {
               const event = events?.find(e => e.name.toLowerCase().includes(task.event_name.toLowerCase()));
               if (event) {
                 await supabase.from('event_tasks').insert({ event_id: event.id, task_id: taskData.id });
+              }
+            }
+
+            // Notify responsible
+            if (responsibleProfile && responsibleProfile.user_id !== user?.id) {
+              await supabase.from('notifications').insert({
+                user_id: responsibleProfile.user_id, type: 'task_assigned',
+                title: 'Nova tarefa atribuída pela IA', message: task.title, link: '/tasks',
+              });
+            }
+          }
+        }
+
+        // Create dependencies after all tasks are created
+        for (const task of action.tasks) {
+          if (task.dependencies && task.dependencies.length > 0) {
+            const taskId = createdTaskMap[task.title.toLowerCase()];
+            if (!taskId) continue;
+
+            for (const depTitle of task.dependencies) {
+              // Look in newly created tasks first, then existing
+              let depId = createdTaskMap[depTitle.toLowerCase()];
+              if (!depId) {
+                const existing = existingTasks?.find(t => t.title.toLowerCase().includes(depTitle.toLowerCase()));
+                depId = existing?.id || '';
+              }
+              if (depId) {
+                await supabase.from('task_dependencies').insert({
+                  task_id: taskId, depends_on_task_id: depId, created_by: user?.id,
+                });
               }
             }
           }
