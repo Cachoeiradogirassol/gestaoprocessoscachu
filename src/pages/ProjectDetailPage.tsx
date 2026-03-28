@@ -311,6 +311,10 @@ export default function ProjectDetailPage() {
           )}
         </TabsContent>
 
+        <TabsContent value="flow" className="space-y-4">
+          <ProjectFlowchart projectId={id!} tasks={tasks} profiles={profiles} />
+        </TabsContent>
+
         <TabsContent value="participants" className="space-y-4">
           {(isAdmin || isGestor) && (
             <div className="flex gap-2">
