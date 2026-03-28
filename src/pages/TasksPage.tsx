@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip } from 'lucide-react';
+import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip, Link, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -61,6 +61,7 @@ export default function TasksPage() {
   const { toast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [taskDeps, setTaskDeps] = useState<{task_id: string; depends_on_task_id: string}[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [draggedTask, setDraggedTask] = useState<string | null>(null);
@@ -94,7 +95,21 @@ export default function TasksPage() {
     if (data) setProfiles(data);
   };
 
-  useEffect(() => { fetchTasks(); fetchProfiles(); }, []);
+  const fetchDeps = async () => {
+    const { data } = await supabase.from('task_dependencies').select('task_id, depends_on_task_id');
+    if (data) setTaskDeps(data);
+  };
+
+  useEffect(() => { fetchTasks(); fetchProfiles(); fetchDeps(); }, []);
+
+  // Realtime for tasks
+  useEffect(() => {
+    const channel = supabase.channel('tasks-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchTasks())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_dependencies' }, () => fetchDeps())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Task detail data
   const fetchTaskMessages = async (taskId: string) => {
@@ -191,6 +206,8 @@ export default function TasksPage() {
         });
       }
     }
+    await supabase.from('task_dependencies').delete().eq('task_id', taskId);
+    await supabase.from('task_dependencies').delete().eq('depends_on_task_id', taskId);
     await supabase.from('event_tasks').delete().eq('task_id', taskId);
     await supabase.from('task_participants').delete().eq('task_id', taskId);
     await supabase.from('task_comments').delete().eq('task_id', taskId);
@@ -214,6 +231,34 @@ export default function TasksPage() {
     }).eq('id', taskId);
     if (!error) {
       await supabase.from('task_logs').insert({ task_id: taskId, user_id: user?.id, status: newStatus });
+      // When completed, notify tasks that were waiting on this dependency
+      if (newStatus === 'concluido') {
+        const { data: dependents } = await supabase.from('task_dependencies').select('task_id').eq('depends_on_task_id', taskId);
+        if (dependents) {
+          for (const dep of dependents) {
+            // Check if ALL deps of this task are now done
+            const { data: allDeps } = await supabase.from('task_dependencies').select('depends_on_task_id').eq('task_id', dep.task_id);
+            if (allDeps) {
+              const depTaskIds = allDeps.map(d => d.depends_on_task_id).filter(id => id !== taskId);
+              let allDone = true;
+              if (depTaskIds.length > 0) {
+                const { data: depTasks } = await supabase.from('tasks').select('id, status').in('id', depTaskIds);
+                allDone = depTasks?.every(t => t.status === 'concluido') ?? true;
+              }
+              if (allDone) {
+                // Get the task to notify its responsible
+                const { data: unlockedTask } = await supabase.from('tasks').select('title, responsible_id').eq('id', dep.task_id).single();
+                if (unlockedTask?.responsible_id) {
+                  await supabase.from('notifications').insert({
+                    user_id: unlockedTask.responsible_id, type: 'task_unblocked',
+                    title: 'Tarefa liberada!', message: `"${unlockedTask.title}" foi desbloqueada e pode ser iniciada.`, link: '/tasks',
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
       fetchTasks();
     }
   };
@@ -369,7 +414,21 @@ export default function TasksPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const renderTaskCard = (task: Task) => (
+  const isTaskBlocked = (taskId: string) => {
+    const deps = taskDeps.filter(d => d.task_id === taskId);
+    if (deps.length === 0) return false;
+    return deps.some(d => {
+      const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+      return depTask && depTask.status !== 'concluido';
+    });
+  };
+
+  const getTaskDepsCount = (taskId: string) => taskDeps.filter(d => d.task_id === taskId).length;
+
+  const renderTaskCard = (task: Task) => {
+    const blocked = isTaskBlocked(task.id);
+    const depsCount = getTaskDepsCount(task.id);
+    return (
     <Card
       key={task.id}
       draggable
@@ -379,9 +438,11 @@ export default function TasksPage() {
       <CardContent className="p-3 space-y-2">
         <div className="flex items-start justify-between gap-1">
           <button onClick={() => openTaskDetail(task)} className="text-sm font-medium text-foreground flex-1 text-left hover:text-primary transition-colors">
+            {blocked && <Lock className="h-3 w-3 inline text-destructive mr-1" />}
             {task.title}
           </button>
           <div className="flex items-center gap-0.5 shrink-0">
+            {depsCount > 0 && <Badge variant="outline" className="text-[10px]"><Link className="h-2.5 w-2.5" /></Badge>}
             {task.is_recurring && <Badge variant="outline" className="text-[10px]">🔁</Badge>}
             {canEditTask(task) && (
               <button onClick={(e) => { e.stopPropagation(); setEditingTask({ ...task }); setIsEditDialogOpen(true); }} className="p-1 hover:bg-accent rounded">
@@ -395,6 +456,7 @@ export default function TasksPage() {
             )}
           </div>
         </div>
+        {blocked && <p className="text-[10px] text-destructive font-medium">🔒 Bloqueada por dependência</p>}
         {task.description && <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>}
         <div className="flex items-center justify-between">
           <Badge className={priorityColors[task.priority]} variant="outline">{task.priority}</Badge>
@@ -410,6 +472,7 @@ export default function TasksPage() {
       </CardContent>
     </Card>
   );
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">

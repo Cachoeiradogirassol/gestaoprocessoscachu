@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply, Download } from 'lucide-react';
+import { ArrowLeft, Plus, Send, BarChart3, Users, Calendar, MessageSquare, FileText, Upload, Trash2, Reply, Download, GitBranch } from 'lucide-react';
+import ProjectFlowchart from '@/components/ProjectFlowchart';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -239,9 +240,10 @@ export default function ProjectDetailPage() {
       </div>
 
       <Tabs defaultValue="dashboard" className="space-y-4">
-        <TabsList className="w-full grid grid-cols-5">
+        <TabsList className="w-full grid grid-cols-6">
           <TabsTrigger value="dashboard" className="text-[10px] sm:text-xs">Painel</TabsTrigger>
           <TabsTrigger value="tasks" className="text-[10px] sm:text-xs">Tarefas</TabsTrigger>
+          <TabsTrigger value="flow" className="text-[10px] sm:text-xs"><GitBranch className="h-3 w-3 mr-0.5 hidden sm:inline" />Fluxo</TabsTrigger>
           <TabsTrigger value="participants" className="text-[10px] sm:text-xs">Equipe</TabsTrigger>
           <TabsTrigger value="chat" className="text-[10px] sm:text-xs">Chat</TabsTrigger>
           <TabsTrigger value="files" className="text-[10px] sm:text-xs">Arquivos</TabsTrigger>
@@ -307,6 +309,10 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="flow" className="space-y-4">
+          <ProjectFlowchart projectId={id!} tasks={tasks} profiles={profiles} />
         </TabsContent>
 
         <TabsContent value="participants" className="space-y-4">
