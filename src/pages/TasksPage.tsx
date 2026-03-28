@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip } from 'lucide-react';
+import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip, Link, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
@@ -214,6 +214,34 @@ export default function TasksPage() {
     }).eq('id', taskId);
     if (!error) {
       await supabase.from('task_logs').insert({ task_id: taskId, user_id: user?.id, status: newStatus });
+      // When completed, notify tasks that were waiting on this dependency
+      if (newStatus === 'concluido') {
+        const { data: dependents } = await supabase.from('task_dependencies').select('task_id').eq('depends_on_task_id', taskId);
+        if (dependents) {
+          for (const dep of dependents) {
+            // Check if ALL deps of this task are now done
+            const { data: allDeps } = await supabase.from('task_dependencies').select('depends_on_task_id').eq('task_id', dep.task_id);
+            if (allDeps) {
+              const depTaskIds = allDeps.map(d => d.depends_on_task_id).filter(id => id !== taskId);
+              let allDone = true;
+              if (depTaskIds.length > 0) {
+                const { data: depTasks } = await supabase.from('tasks').select('id, status').in('id', depTaskIds);
+                allDone = depTasks?.every(t => t.status === 'concluido') ?? true;
+              }
+              if (allDone) {
+                // Get the task to notify its responsible
+                const { data: unlockedTask } = await supabase.from('tasks').select('title, responsible_id').eq('id', dep.task_id).single();
+                if (unlockedTask?.responsible_id) {
+                  await supabase.from('notifications').insert({
+                    user_id: unlockedTask.responsible_id, type: 'task_unblocked',
+                    title: 'Tarefa liberada!', message: `"${unlockedTask.title}" foi desbloqueada e pode ser iniciada.`, link: '/tasks',
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
       fetchTasks();
     }
   };
