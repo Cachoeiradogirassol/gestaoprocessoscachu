@@ -412,7 +412,21 @@ export default function TasksPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const renderTaskCard = (task: Task) => (
+  const isTaskBlocked = (taskId: string) => {
+    const deps = taskDeps.filter(d => d.task_id === taskId);
+    if (deps.length === 0) return false;
+    return deps.some(d => {
+      const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+      return depTask && depTask.status !== 'concluido';
+    });
+  };
+
+  const getTaskDepsCount = (taskId: string) => taskDeps.filter(d => d.task_id === taskId).length;
+
+  const renderTaskCard = (task: Task) => {
+    const blocked = isTaskBlocked(task.id);
+    const depsCount = getTaskDepsCount(task.id);
+    return (
     <Card
       key={task.id}
       draggable
