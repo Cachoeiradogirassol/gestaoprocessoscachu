@@ -61,6 +61,7 @@ export default function TasksPage() {
   const { toast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [taskDeps, setTaskDeps] = useState<{task_id: string; depends_on_task_id: string}[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [draggedTask, setDraggedTask] = useState<string | null>(null);
@@ -94,7 +95,21 @@ export default function TasksPage() {
     if (data) setProfiles(data);
   };
 
-  useEffect(() => { fetchTasks(); fetchProfiles(); }, []);
+  const fetchDeps = async () => {
+    const { data } = await supabase.from('task_dependencies').select('task_id, depends_on_task_id');
+    if (data) setTaskDeps(data);
+  };
+
+  useEffect(() => { fetchTasks(); fetchProfiles(); fetchDeps(); }, []);
+
+  // Realtime for tasks
+  useEffect(() => {
+    const channel = supabase.channel('tasks-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchTasks())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_dependencies' }, () => fetchDeps())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Task detail data
   const fetchTaskMessages = async (taskId: string) => {
