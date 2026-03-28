@@ -206,6 +206,8 @@ export default function TasksPage() {
         });
       }
     }
+    await supabase.from('task_dependencies').delete().eq('task_id', taskId);
+    await supabase.from('task_dependencies').delete().eq('depends_on_task_id', taskId);
     await supabase.from('event_tasks').delete().eq('task_id', taskId);
     await supabase.from('task_participants').delete().eq('task_id', taskId);
     await supabase.from('task_comments').delete().eq('task_id', taskId);
