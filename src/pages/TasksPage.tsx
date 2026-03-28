@@ -436,9 +436,11 @@ export default function TasksPage() {
       <CardContent className="p-3 space-y-2">
         <div className="flex items-start justify-between gap-1">
           <button onClick={() => openTaskDetail(task)} className="text-sm font-medium text-foreground flex-1 text-left hover:text-primary transition-colors">
+            {blocked && <Lock className="h-3 w-3 inline text-destructive mr-1" />}
             {task.title}
           </button>
           <div className="flex items-center gap-0.5 shrink-0">
+            {depsCount > 0 && <Badge variant="outline" className="text-[10px]"><Link className="h-2.5 w-2.5" /></Badge>}
             {task.is_recurring && <Badge variant="outline" className="text-[10px]">🔁</Badge>}
             {canEditTask(task) && (
               <button onClick={(e) => { e.stopPropagation(); setEditingTask({ ...task }); setIsEditDialogOpen(true); }} className="p-1 hover:bg-accent rounded">
@@ -452,6 +454,7 @@ export default function TasksPage() {
             )}
           </div>
         </div>
+        {blocked && <p className="text-[10px] text-destructive font-medium">🔒 Bloqueada por dependência</p>}
         {task.description && <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>}
         <div className="flex items-center justify-between">
           <Badge className={priorityColors[task.priority]} variant="outline">{task.priority}</Badge>
@@ -467,6 +470,7 @@ export default function TasksPage() {
       </CardContent>
     </Card>
   );
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">
