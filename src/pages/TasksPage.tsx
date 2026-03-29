@@ -606,11 +606,11 @@ export default function TasksPage() {
         </div>
       )}
 
-      {viewMode === 'kanban' && groupByUser && (
+      {!showArchive && viewMode === 'kanban' && groupByUser && (
         <div className="space-y-6 pb-4">
           {uniqueResponsibles.map(userId => {
             const userName = getProfileName(userId);
-            const userTasks = tasks.filter(t => t.responsible_id === userId);
+            const userTasks = weeklyTasks.filter(t => t.responsible_id === userId);
             return (
               <div key={userId}>
                 <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
@@ -640,14 +640,13 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* List */}
-      {viewMode === 'list' && (
+      {!showArchive && viewMode === 'list' && (
         <Card className="border-border">
           <CardContent className="p-0">
             <div className="divide-y divide-border">
-              {tasks.length === 0 ? (
+              {weeklyTasks.length === 0 ? (
                 <p className="text-sm text-muted-foreground p-8 text-center">Nenhuma tarefa encontrada</p>
-              ) : tasks.map(task => (
+              ) : weeklyTasks.map(task => (
                 <div key={task.id} className="flex items-center gap-3 p-3 hover:bg-accent/30 transition-colors">
                   <div className={`h-2 w-2 rounded-full shrink-0 ${columns.find(c => c.key === task.status)?.color}`} />
                   <button onClick={() => openTaskDetail(task)} className="flex-1 min-w-0 text-left">
