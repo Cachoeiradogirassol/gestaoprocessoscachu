@@ -574,11 +574,23 @@ export default function TasksPage() {
         </Dialog>
       </div>
 
+      {showArchive && archivedTasks.length > 0 && (
+        <Card className="border-border"><CardContent className="p-4"><p className="text-sm font-medium text-foreground mb-2">Arquivo ({archivedTasks.length} tarefas concluídas)</p>
+          <div className="space-y-1">{archivedTasks.map(t => (
+            <div key={t.id} className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded bg-muted/30">
+              <span className="flex-1 truncate">{t.title}</span>
+              <span>{getProfileName(t.responsible_id)}</span>
+              <span>{format(new Date(t.created_at), 'dd/MM')}</span>
+            </div>
+          ))}</div>
+        </CardContent></Card>
+      )}
+
       {/* Kanban */}
-      {viewMode === 'kanban' && !groupByUser && (
+      {!showArchive && viewMode === 'kanban' && !groupByUser && (
         <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-thin">
           {columns.map(col => {
-            const colTasks = tasks.filter(t => t.status === col.key);
+            const colTasks = weeklyTasks.filter(t => t.status === col.key);
             return (
               <div key={col.key} className={`min-w-[260px] flex-shrink-0 rounded-lg transition-colors ${dragOverCol === col.key ? 'bg-accent/30' : ''}`}
                 onDragOver={(e) => handleDragOver(e, col.key)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, col.key)}>
