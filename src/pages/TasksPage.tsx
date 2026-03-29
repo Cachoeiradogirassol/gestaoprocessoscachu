@@ -446,7 +446,26 @@ export default function TasksPage() {
   const handleDragStart = (e: React.DragEvent, taskId: string) => { setDraggedTask(taskId); e.dataTransfer.effectAllowed = 'move'; };
   const handleDragOver = (e: React.DragEvent, colKey: string) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCol(colKey); };
   const handleDragLeave = () => setDragOverCol(null);
-  const handleDrop = (e: React.DragEvent, colKey: TaskStatus) => { e.preventDefault(); setDragOverCol(null); if (draggedTask) { updateTaskStatus(draggedTask, colKey); setDraggedTask(null); } };
+  const handleDrop = (e: React.DragEvent, colKey: TaskStatus) => {
+    e.preventDefault(); setDragOverCol(null);
+    if (draggedTask) {
+      // Enforce chaining on drag to concluido
+      if (colKey === 'concluido') {
+        const deps = taskDeps.filter(d => d.task_id === draggedTask);
+        const hasUnfinished = deps.some(d => {
+          const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+          return depTask && depTask.status !== 'concluido';
+        });
+        if (hasUnfinished) {
+          toast({ title: 'Bloqueada', description: 'Conclua as dependências primeiro.', variant: 'destructive' });
+          setDraggedTask(null);
+          return;
+        }
+      }
+      updateTaskStatus(draggedTask, colKey);
+      setDraggedTask(null);
+    }
+  };
 
   const uniqueResponsibles = Array.from(new Set(tasks.map(t => t.responsible_id).filter(Boolean))) as string[];
 
