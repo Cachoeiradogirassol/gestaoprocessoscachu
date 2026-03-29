@@ -19,17 +19,8 @@ interface TeamMember {
   role: string;
 }
 
-const roleLabels: Record<string, string> = {
-  admin: 'Administrador',
-  gestor: 'Gestor',
-  operacional: 'Operacional',
-};
-
-const roleBadgeColors: Record<string, string> = {
-  admin: 'bg-destructive/10 text-destructive',
-  gestor: 'bg-warning/10 text-warning',
-  operacional: 'bg-primary/10 text-primary',
-};
+const roleLabels: Record<string, string> = { admin: 'Administrador', gestor: 'Gestor', operacional: 'Operacional' };
+const roleBadgeColors: Record<string, string> = { admin: 'bg-destructive/10 text-destructive', gestor: 'bg-warning/10 text-warning', operacional: 'bg-primary/10 text-primary' };
 
 export default function TeamPage() {
   const { isAdmin, user } = useAuth();
@@ -38,23 +29,20 @@ export default function TeamPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
   const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
   const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const fetchMembers = async () => {
     try {
       const { data: profiles } = await supabase.from('profiles').select('user_id, full_name, cargo, setor');
       const { data: roles } = await supabase.from('user_roles').select('user_id, role');
       if (profiles && roles) {
-        const combined = profiles.map(p => ({
-          ...p,
-          role: roles.find(r => r.user_id === p.user_id)?.role || 'operacional',
-        }));
-        setMembers(combined);
+        setMembers(profiles.map(p => ({ ...p, role: roles.find(r => r.user_id === p.user_id)?.role || 'operacional' })));
       }
-    } catch (err) {
-      console.error('Error fetching members:', err);
-    }
+    } catch (err) { console.error('Error fetching members:', err); }
   };
 
   useEffect(() => { fetchMembers(); }, []);
@@ -70,18 +58,16 @@ export default function TeamPage() {
     }
     setIsCreating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-create-user', { body: newUser });
+      const { error } = await supabase.functions.invoke('admin-create-user', { body: newUser });
       if (error) {
-        console.error('Create user error:', error);
-        toast({ title: 'Erro', description: 'Não foi possível criar o usuário. Verifique os dados.', variant: 'destructive' });
+        toast({ title: 'Erro', description: 'Não foi possível criar o usuário.', variant: 'destructive' });
       } else {
         toast({ title: 'Usuário criado com sucesso!' });
         setNewUser({ email: '', password: '', full_name: '', cargo: '', setor: '', role: 'operacional' });
         setIsDialogOpen(false);
-        setTimeout(fetchMembers, 1000); // Wait for triggers
+        setTimeout(fetchMembers, 1000);
       }
     } catch (err) {
-      console.error('Create user exception:', err);
       toast({ title: 'Erro inesperado', variant: 'destructive' });
     }
     setIsCreating(false);
@@ -89,25 +75,34 @@ export default function TeamPage() {
 
   const updateMember = async () => {
     if (!editingMember) return;
-    const { error: profileError } = await supabase.from('profiles').update({
-      full_name: editingMember.full_name,
-      cargo: editingMember.cargo,
-      setor: editingMember.setor,
-    }).eq('user_id', editingMember.user_id);
-
-    const { error: roleError } = await supabase.from('user_roles').update({
-      role: editingMember.role as any,
-    }).eq('user_id', editingMember.user_id);
-
-    if (profileError || roleError) {
-      console.error('Update member error:', profileError, roleError);
-      toast({ title: 'Erro ao atualizar', variant: 'destructive' });
-    } else {
-      toast({ title: 'Membro atualizado!' });
-      setIsEditDialogOpen(false);
-      setEditingMember(null);
-      fetchMembers();
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase.functions.invoke('admin-create-user', {
+        body: {
+          action: 'update_user',
+          user_id: editingMember.user_id,
+          full_name: editingMember.full_name,
+          cargo: editingMember.cargo,
+          setor: editingMember.setor,
+          role: editingMember.role,
+          email: editEmail || undefined,
+          password: editPassword || undefined,
+        },
+      });
+      if (error) {
+        toast({ title: 'Erro ao atualizar', description: 'Verifique os dados.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Membro atualizado!' });
+        setIsEditDialogOpen(false);
+        setEditingMember(null);
+        setEditEmail('');
+        setEditPassword('');
+        fetchMembers();
+      }
+    } catch (err) {
+      toast({ title: 'Erro inesperado', variant: 'destructive' });
     }
+    setIsUpdating(false);
   };
 
   const deleteMember = async (userId: string) => {
@@ -116,34 +111,18 @@ export default function TeamPage() {
       return;
     }
     if (!confirm('Excluir este usuário? As tarefas atribuídas a ele ficarão sem responsável.')) return;
-
     try {
-      // Unassign tasks
-      await supabase.from('tasks').update({ responsible_id: null }).eq('responsible_id', userId);
-      // Remove participants
-      await supabase.from('task_participants').delete().eq('user_id', userId);
-      await supabase.from('event_participants').delete().eq('user_id', userId);
-      // Remove role then profile
-      await supabase.from('user_roles').delete().eq('user_id', userId);
-      const { error } = await supabase.from('profiles').delete().eq('user_id', userId);
+      const { error } = await supabase.functions.invoke('admin-create-user', {
+        body: { action: 'delete_user', user_id: userId },
+      });
       if (error) {
-        console.error('Delete profile error:', error);
-        toast({ title: 'Erro ao excluir', description: error.message, variant: 'destructive' });
+        toast({ title: 'Erro ao excluir', variant: 'destructive' });
       } else {
         toast({ title: 'Usuário removido!' });
         fetchMembers();
       }
     } catch (err) {
-      console.error('Delete member exception:', err);
       toast({ title: 'Erro inesperado', variant: 'destructive' });
-    }
-  };
-
-  const updateRole = async (userId: string, newRole: string) => {
-    const { error } = await supabase.from('user_roles').update({ role: newRole as any }).eq('user_id', userId);
-    if (!error) {
-      toast({ title: 'Permissão atualizada!' });
-      fetchMembers();
     }
   };
 
@@ -200,21 +179,11 @@ export default function TeamPage() {
                     <p className="text-xs text-muted-foreground">{m.cargo || 'Sem cargo'} • {m.setor || 'Sem setor'}</p>
                   </div>
                 </div>
-                <Badge className={roleBadgeColors[m.role]} variant="secondary">
-                  {roleLabels[m.role]}
-                </Badge>
+                <Badge className={roleBadgeColors[m.role]} variant="secondary">{roleLabels[m.role]}</Badge>
               </div>
               {isAdmin && (
                 <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
-                  <Select value={m.role} onValueChange={v => updateRole(m.user_id, v)}>
-                    <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="operacional">Operacional</SelectItem>
-                      <SelectItem value="gestor">Gestor</SelectItem>
-                      <SelectItem value="admin">Administrador</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingMember({ ...m }); setIsEditDialogOpen(true); }}>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingMember({ ...m }); setEditEmail(''); setEditPassword(''); setIsEditDialogOpen(true); }}>
                     <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteMember(m.user_id)}>
@@ -228,12 +197,14 @@ export default function TeamPage() {
       </div>
 
       {/* Edit Member Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={(v) => { setIsEditDialogOpen(v); if (!v) setEditingMember(null); }}>
+      <Dialog open={isEditDialogOpen} onOpenChange={(v) => { setIsEditDialogOpen(v); if (!v) { setEditingMember(null); setEditEmail(''); setEditPassword(''); } }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Editar Membro</DialogTitle></DialogHeader>
           {editingMember && (
             <div className="space-y-4">
               <div><Label>Nome completo</Label><Input value={editingMember.full_name} onChange={e => setEditingMember(p => p ? { ...p, full_name: e.target.value } : null)} /></div>
+              <div><Label>Novo Email (deixe vazio para manter)</Label><Input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} placeholder="novo@email.com" /></div>
+              <div><Label>Nova Senha (deixe vazio para manter)</Label><Input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="••••••" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Cargo</Label><Input value={editingMember.cargo || ''} onChange={e => setEditingMember(p => p ? { ...p, cargo: e.target.value } : null)} /></div>
                 <div><Label>Setor</Label><Input value={editingMember.setor || ''} onChange={e => setEditingMember(p => p ? { ...p, setor: e.target.value } : null)} /></div>
@@ -249,7 +220,9 @@ export default function TeamPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={updateMember} className="w-full">Salvar Alterações</Button>
+              <Button onClick={updateMember} className="w-full" disabled={isUpdating}>
+                {isUpdating ? 'Salvando...' : 'Salvar Alterações'}
+              </Button>
             </div>
           )}
         </DialogContent>

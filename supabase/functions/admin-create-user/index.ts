@@ -17,7 +17,6 @@ serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Verify the calling user is admin
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -34,7 +33,6 @@ serve(async (req) => {
       });
     }
 
-    // Check if calling user is admin
     const { data: roleData } = await supabaseAdmin
       .from("user_roles")
       .select("role")
@@ -47,9 +45,75 @@ serve(async (req) => {
       });
     }
 
-    const { email, password, full_name, cargo, setor, role } = await req.json();
+    const body = await req.json();
+    const { action } = body;
 
-    // Create the user
+    // UPDATE USER (email/password)
+    if (action === "update_user") {
+      const { user_id, email, password, full_name, cargo, setor, role } = body;
+      
+      // Update auth user (email/password) if provided
+      const authUpdates: any = {};
+      if (email) authUpdates.email = email;
+      if (password) authUpdates.password = password;
+      
+      if (Object.keys(authUpdates).length > 0) {
+        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user_id, authUpdates);
+        if (authError) {
+          return new Response(JSON.stringify({ error: authError.message }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // Update profile
+      const profileUpdates: any = {};
+      if (full_name !== undefined) profileUpdates.full_name = full_name;
+      if (cargo !== undefined) profileUpdates.cargo = cargo;
+      if (setor !== undefined) profileUpdates.setor = setor;
+      
+      if (Object.keys(profileUpdates).length > 0) {
+        await supabaseAdmin.from("profiles").update(profileUpdates).eq("user_id", user_id);
+      }
+
+      // Update role
+      if (role) {
+        await supabaseAdmin.from("user_roles").update({ role }).eq("user_id", user_id);
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // DELETE USER
+    if (action === "delete_user") {
+      const { user_id } = body;
+      
+      // Clean up related data
+      await supabaseAdmin.from("tasks").update({ responsible_id: null }).eq("responsible_id", user_id);
+      await supabaseAdmin.from("task_participants").delete().eq("user_id", user_id);
+      await supabaseAdmin.from("event_participants").delete().eq("user_id", user_id);
+      await supabaseAdmin.from("notifications").delete().eq("user_id", user_id);
+      await supabaseAdmin.from("user_roles").delete().eq("user_id", user_id);
+      await supabaseAdmin.from("profiles").delete().eq("user_id", user_id);
+      
+      // Delete auth user
+      const { error } = await supabaseAdmin.auth.admin.deleteUser(user_id);
+      if (error) {
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // CREATE USER (default action for backwards compatibility)
+    const { email, password, full_name, cargo, setor, role } = body;
+
     const { data: newUserData, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -65,20 +129,12 @@ serve(async (req) => {
 
     const newUserId = newUserData.user.id;
 
-    // Update profile with cargo/setor
     if (cargo || setor) {
-      await supabaseAdmin
-        .from("profiles")
-        .update({ cargo, setor })
-        .eq("user_id", newUserId);
+      await supabaseAdmin.from("profiles").update({ cargo, setor }).eq("user_id", newUserId);
     }
 
-    // Update role if not operacional (default)
     if (role && role !== "operacional") {
-      await supabaseAdmin
-        .from("user_roles")
-        .update({ role })
-        .eq("user_id", newUserId);
+      await supabaseAdmin.from("user_roles").update({ role }).eq("user_id", newUserId);
     }
 
     return new Response(JSON.stringify({ success: true, user_id: newUserId }), {
