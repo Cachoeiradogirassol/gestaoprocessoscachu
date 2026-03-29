@@ -14,7 +14,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip, Link, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
+import { format, startOfWeek, endOfWeek, isWithinInterval, isBefore } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 type TaskStatus = 'backlog' | 'a_fazer' | 'em_andamento' | 'em_validacao' | 'concluido';
 type TaskPriority = 'baixa' | 'media' | 'alta' | 'urgente';
@@ -80,8 +81,27 @@ export default function TasksPage() {
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [addParticipantId, setAddParticipantId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Weekly filtering
+  const now = new Date();
+  const weekStart = startOfWeek(now, { locale: ptBR, weekStartsOn: 1 });
+  const weekEnd = endOfWeek(now, { locale: ptBR, weekStartsOn: 1 });
+
+  const isCurrentWeekTask = (task: Task) => {
+    // Completed tasks from previous weeks go to archive
+    if (task.status === 'concluido') {
+      const completedAt = task.created_at; // use created_at as fallback
+      return isWithinInterval(new Date(completedAt), { start: weekStart, end: weekEnd });
+    }
+    // Incomplete tasks always show (carry over from previous weeks)
+    return true;
+  };
+
+  const weeklyTasks = tasks.filter(t => isCurrentWeekTask(t));
+  const archivedTasks = tasks.filter(t => t.status === 'concluido' && !isCurrentWeekTask(t));
 
   const fetchTasks = async () => {
     try {
@@ -226,17 +246,44 @@ export default function TasksPage() {
   const canDeleteTask = (task: Task) => isAdmin || isGestor || task.created_by === user?.id;
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
+    // Enforce dependency chaining: can't complete if dependencies aren't done
+    if (newStatus === 'concluido') {
+      const deps = taskDeps.filter(d => d.task_id === taskId);
+      const hasUnfinished = deps.some(d => {
+        const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+        return depTask && depTask.status !== 'concluido';
+      });
+      if (hasUnfinished) {
+        toast({ title: 'Bloqueada', description: 'Conclua as tarefas anteriores na cadeia primeiro.', variant: 'destructive' });
+        return;
+      }
+    }
+
     const { error } = await supabase.from('tasks').update({
       status: newStatus, completed_at: newStatus === 'concluido' ? new Date().toISOString() : null,
     }).eq('id', taskId);
     if (!error) {
       await supabase.from('task_logs').insert({ task_id: taskId, user_id: user?.id, status: newStatus });
-      // When completed, notify tasks that were waiting on this dependency
+
+      // Notify admin when ANY task is completed
       if (newStatus === 'concluido') {
+        const { data: admins } = await supabase.from('user_roles').select('user_id').eq('role', 'admin');
+        const task = tasks.find(t => t.id === taskId);
+        if (admins && task) {
+          for (const admin of admins) {
+            if (admin.user_id !== user?.id) {
+              await supabase.from('notifications').insert({
+                user_id: admin.user_id, type: 'task_completed',
+                title: 'Tarefa concluída', message: `"${task.title}" foi concluída por ${getProfileName(user?.id || null)}.`, link: '/tasks',
+              });
+            }
+          }
+        }
+
+        // Unblock dependent tasks
         const { data: dependents } = await supabase.from('task_dependencies').select('task_id').eq('depends_on_task_id', taskId);
         if (dependents) {
           for (const dep of dependents) {
-            // Check if ALL deps of this task are now done
             const { data: allDeps } = await supabase.from('task_dependencies').select('depends_on_task_id').eq('task_id', dep.task_id);
             if (allDeps) {
               const depTaskIds = allDeps.map(d => d.depends_on_task_id).filter(id => id !== taskId);
@@ -246,7 +293,8 @@ export default function TasksPage() {
                 allDone = depTasks?.every(t => t.status === 'concluido') ?? true;
               }
               if (allDone) {
-                // Get the task to notify its responsible
+                // Auto-set dependent task to a_fazer
+                await supabase.from('tasks').update({ status: 'a_fazer' }).eq('id', dep.task_id);
                 const { data: unlockedTask } = await supabase.from('tasks').select('title, responsible_id').eq('id', dep.task_id).single();
                 if (unlockedTask?.responsible_id) {
                   await supabase.from('notifications').insert({
@@ -398,7 +446,26 @@ export default function TasksPage() {
   const handleDragStart = (e: React.DragEvent, taskId: string) => { setDraggedTask(taskId); e.dataTransfer.effectAllowed = 'move'; };
   const handleDragOver = (e: React.DragEvent, colKey: string) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverCol(colKey); };
   const handleDragLeave = () => setDragOverCol(null);
-  const handleDrop = (e: React.DragEvent, colKey: TaskStatus) => { e.preventDefault(); setDragOverCol(null); if (draggedTask) { updateTaskStatus(draggedTask, colKey); setDraggedTask(null); } };
+  const handleDrop = (e: React.DragEvent, colKey: TaskStatus) => {
+    e.preventDefault(); setDragOverCol(null);
+    if (draggedTask) {
+      // Enforce chaining on drag to concluido
+      if (colKey === 'concluido') {
+        const deps = taskDeps.filter(d => d.task_id === draggedTask);
+        const hasUnfinished = deps.some(d => {
+          const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+          return depTask && depTask.status !== 'concluido';
+        });
+        if (hasUnfinished) {
+          toast({ title: 'Bloqueada', description: 'Conclua as dependências primeiro.', variant: 'destructive' });
+          setDraggedTask(null);
+          return;
+        }
+      }
+      updateTaskStatus(draggedTask, colKey);
+      setDraggedTask(null);
+    }
+  };
 
   const uniqueResponsibles = Array.from(new Set(tasks.map(t => t.responsible_id).filter(Boolean))) as string[];
 
@@ -477,7 +544,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <Button variant={viewMode === 'kanban' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('kanban')}>Kanban</Button>
           <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('list')}>Lista</Button>
           {isAdmin && viewMode === 'kanban' && (
@@ -485,6 +552,12 @@ export default function TasksPage() {
               <User className="h-3 w-3 mr-1" />Por Pessoa
             </Button>
           )}
+          <Button variant={showArchive ? 'secondary' : 'outline'} size="sm" onClick={() => setShowArchive(!showArchive)}>
+            {showArchive ? 'Semana Atual' : 'Arquivo'}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Semana: {format(weekStart, 'dd/MM')} - {format(weekEnd, 'dd/MM')}
+          </span>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Nova Tarefa</Button></DialogTrigger>
@@ -520,11 +593,23 @@ export default function TasksPage() {
         </Dialog>
       </div>
 
+      {showArchive && archivedTasks.length > 0 && (
+        <Card className="border-border"><CardContent className="p-4"><p className="text-sm font-medium text-foreground mb-2">Arquivo ({archivedTasks.length} tarefas concluídas)</p>
+          <div className="space-y-1">{archivedTasks.map(t => (
+            <div key={t.id} className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded bg-muted/30">
+              <span className="flex-1 truncate">{t.title}</span>
+              <span>{getProfileName(t.responsible_id)}</span>
+              <span>{format(new Date(t.created_at), 'dd/MM')}</span>
+            </div>
+          ))}</div>
+        </CardContent></Card>
+      )}
+
       {/* Kanban */}
-      {viewMode === 'kanban' && !groupByUser && (
+      {!showArchive && viewMode === 'kanban' && !groupByUser && (
         <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-thin">
           {columns.map(col => {
-            const colTasks = tasks.filter(t => t.status === col.key);
+            const colTasks = weeklyTasks.filter(t => t.status === col.key);
             return (
               <div key={col.key} className={`min-w-[260px] flex-shrink-0 rounded-lg transition-colors ${dragOverCol === col.key ? 'bg-accent/30' : ''}`}
                 onDragOver={(e) => handleDragOver(e, col.key)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, col.key)}>
@@ -540,11 +625,11 @@ export default function TasksPage() {
         </div>
       )}
 
-      {viewMode === 'kanban' && groupByUser && (
+      {!showArchive && viewMode === 'kanban' && groupByUser && (
         <div className="space-y-6 pb-4">
           {uniqueResponsibles.map(userId => {
             const userName = getProfileName(userId);
-            const userTasks = tasks.filter(t => t.responsible_id === userId);
+            const userTasks = weeklyTasks.filter(t => t.responsible_id === userId);
             return (
               <div key={userId}>
                 <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
@@ -574,14 +659,13 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* List */}
-      {viewMode === 'list' && (
+      {!showArchive && viewMode === 'list' && (
         <Card className="border-border">
           <CardContent className="p-0">
             <div className="divide-y divide-border">
-              {tasks.length === 0 ? (
+              {weeklyTasks.length === 0 ? (
                 <p className="text-sm text-muted-foreground p-8 text-center">Nenhuma tarefa encontrada</p>
-              ) : tasks.map(task => (
+              ) : weeklyTasks.map(task => (
                 <div key={task.id} className="flex items-center gap-3 p-3 hover:bg-accent/30 transition-colors">
                   <div className={`h-2 w-2 rounded-full shrink-0 ${columns.find(c => c.key === task.status)?.color}`} />
                   <button onClick={() => openTaskDetail(task)} className="flex-1 min-w-0 text-left">
