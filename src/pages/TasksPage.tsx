@@ -525,7 +525,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <Button variant={viewMode === 'kanban' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('kanban')}>Kanban</Button>
           <Button variant={viewMode === 'list' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('list')}>Lista</Button>
           {isAdmin && viewMode === 'kanban' && (
@@ -533,6 +533,12 @@ export default function TasksPage() {
               <User className="h-3 w-3 mr-1" />Por Pessoa
             </Button>
           )}
+          <Button variant={showArchive ? 'secondary' : 'outline'} size="sm" onClick={() => setShowArchive(!showArchive)}>
+            {showArchive ? 'Semana Atual' : 'Arquivo'}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Semana: {format(weekStart, 'dd/MM')} - {format(weekEnd, 'dd/MM')}
+          </span>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild><Button size="sm"><Plus className="h-4 w-4 mr-1" /> Nova Tarefa</Button></DialogTrigger>
