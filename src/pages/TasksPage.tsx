@@ -14,7 +14,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Calendar, User, Pencil, Trash2, Send, Reply, MessageSquare, X, Upload, Download, FileText, Users, CheckSquare, Paperclip, Link, Lock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
+import { format, startOfWeek, endOfWeek, isWithinInterval, isBefore } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 type TaskStatus = 'backlog' | 'a_fazer' | 'em_andamento' | 'em_validacao' | 'concluido';
 type TaskPriority = 'baixa' | 'media' | 'alta' | 'urgente';
@@ -80,8 +81,27 @@ export default function TasksPage() {
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [addParticipantId, setAddParticipantId] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Weekly filtering
+  const now = new Date();
+  const weekStart = startOfWeek(now, { locale: ptBR, weekStartsOn: 1 });
+  const weekEnd = endOfWeek(now, { locale: ptBR, weekStartsOn: 1 });
+
+  const isCurrentWeekTask = (task: Task) => {
+    // Completed tasks from previous weeks go to archive
+    if (task.status === 'concluido') {
+      const completedAt = task.created_at; // use created_at as fallback
+      return isWithinInterval(new Date(completedAt), { start: weekStart, end: weekEnd });
+    }
+    // Incomplete tasks always show (carry over from previous weeks)
+    return true;
+  };
+
+  const weeklyTasks = tasks.filter(t => isCurrentWeekTask(t));
+  const archivedTasks = tasks.filter(t => t.status === 'concluido' && !isCurrentWeekTask(t));
 
   const fetchTasks = async () => {
     try {
