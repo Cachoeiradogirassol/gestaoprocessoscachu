@@ -246,17 +246,44 @@ export default function TasksPage() {
   const canDeleteTask = (task: Task) => isAdmin || isGestor || task.created_by === user?.id;
 
   const updateTaskStatus = async (taskId: string, newStatus: TaskStatus) => {
+    // Enforce dependency chaining: can't complete if dependencies aren't done
+    if (newStatus === 'concluido') {
+      const deps = taskDeps.filter(d => d.task_id === taskId);
+      const hasUnfinished = deps.some(d => {
+        const depTask = tasks.find(t => t.id === d.depends_on_task_id);
+        return depTask && depTask.status !== 'concluido';
+      });
+      if (hasUnfinished) {
+        toast({ title: 'Bloqueada', description: 'Conclua as tarefas anteriores na cadeia primeiro.', variant: 'destructive' });
+        return;
+      }
+    }
+
     const { error } = await supabase.from('tasks').update({
       status: newStatus, completed_at: newStatus === 'concluido' ? new Date().toISOString() : null,
     }).eq('id', taskId);
     if (!error) {
       await supabase.from('task_logs').insert({ task_id: taskId, user_id: user?.id, status: newStatus });
-      // When completed, notify tasks that were waiting on this dependency
+
+      // Notify admin when ANY task is completed
       if (newStatus === 'concluido') {
+        const { data: admins } = await supabase.from('user_roles').select('user_id').eq('role', 'admin');
+        const task = tasks.find(t => t.id === taskId);
+        if (admins && task) {
+          for (const admin of admins) {
+            if (admin.user_id !== user?.id) {
+              await supabase.from('notifications').insert({
+                user_id: admin.user_id, type: 'task_completed',
+                title: 'Tarefa concluída', message: `"${task.title}" foi concluída por ${getProfileName(user?.id || null)}.`, link: '/tasks',
+              });
+            }
+          }
+        }
+
+        // Unblock dependent tasks
         const { data: dependents } = await supabase.from('task_dependencies').select('task_id').eq('depends_on_task_id', taskId);
         if (dependents) {
           for (const dep of dependents) {
-            // Check if ALL deps of this task are now done
             const { data: allDeps } = await supabase.from('task_dependencies').select('depends_on_task_id').eq('task_id', dep.task_id);
             if (allDeps) {
               const depTaskIds = allDeps.map(d => d.depends_on_task_id).filter(id => id !== taskId);
@@ -266,7 +293,8 @@ export default function TasksPage() {
                 allDone = depTasks?.every(t => t.status === 'concluido') ?? true;
               }
               if (allDone) {
-                // Get the task to notify its responsible
+                // Auto-set dependent task to a_fazer
+                await supabase.from('tasks').update({ status: 'a_fazer' }).eq('id', dep.task_id);
                 const { data: unlockedTask } = await supabase.from('tasks').select('title, responsible_id').eq('id', dep.task_id).single();
                 if (unlockedTask?.responsible_id) {
                   await supabase.from('notifications').insert({
