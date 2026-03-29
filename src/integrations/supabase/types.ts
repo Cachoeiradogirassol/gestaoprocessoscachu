@@ -149,6 +149,7 @@ export type Database = {
           name: string
           responsible_id: string | null
           start_date: string | null
+          status: string
           updated_at: string
         }
         Insert: {
@@ -161,6 +162,7 @@ export type Database = {
           name: string
           responsible_id?: string | null
           start_date?: string | null
+          status?: string
           updated_at?: string
         }
         Update: {
@@ -173,6 +175,7 @@ export type Database = {
           name?: string
           responsible_id?: string | null
           start_date?: string | null
+          status?: string
           updated_at?: string
         }
         Relationships: []
